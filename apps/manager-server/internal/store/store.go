@@ -104,6 +104,9 @@ type UsagePricingHourlyFilter = usagepricing.HourlyFilter
 type UsagePricingHourlyRow = usagepricing.HourlyRow
 type UsagePricingAccountRow = usagepricing.AccountRow
 type UsageMonitoringState = usagemonitoring.State
+type UsageMonitoringTimelineHourRow = usagemonitoring.TimelineHourRow
+type UsageMonitoringAPIKeyTimelineHourRow = usagemonitoring.APIKeyTimelineHourRow
+type UsageMonitoringCredentialTimelineHourRow = usagemonitoring.CredentialTimelineHourRow
 type UsageMonitoringCatchUpResult = usagemonitoring.CatchUpResult
 
 type UsageHourlyPricingSnapshot struct {
@@ -547,6 +550,18 @@ func (s *Store) UsageMonitoringModelStats(ctx context.Context, filter AnalyticsF
 	return s.UsageMonitoring.LoadModelStats(ctx, filter)
 }
 
+func (s *Store) UsageMonitoringTimeline(ctx context.Context, filter AnalyticsFilter) ([]UsageMonitoringTimelineHourRow, UsageMonitoringState, bool, error) {
+	return s.UsageMonitoring.LoadTimeline(ctx, filter)
+}
+
+func (s *Store) UsageMonitoringAPIKeyTimeline(ctx context.Context, filter AnalyticsFilter) ([]UsageMonitoringAPIKeyTimelineHourRow, UsageMonitoringState, bool, error) {
+	return s.UsageMonitoring.LoadAPIKeyTimeline(ctx, filter)
+}
+
+func (s *Store) UsageMonitoringCredentialTimeline(ctx context.Context, filter AnalyticsFilter) ([]UsageMonitoringCredentialTimelineHourRow, UsageMonitoringState, bool, error) {
+	return s.UsageMonitoring.LoadCredentialTimeline(ctx, filter)
+}
+
 func (s *Store) UsageMonitoringAccountStats(ctx context.Context, filter AnalyticsFilter) ([]AccountModelStat, UsageMonitoringState, bool, error) {
 	return s.UsageMonitoring.LoadAccountStats(ctx, filter)
 }
@@ -817,6 +832,10 @@ func (s *Store) LatencyPercentilesWithFilter(ctx context.Context, filter Analyti
 
 func (s *Store) LatencySummaryWithFilter(ctx context.Context, filter AnalyticsFilter) (LatencySummary, error) {
 	return s.UsageEvents.LatencySummaryWithFilter(ctx, filter)
+}
+
+func (s *Store) LatencyBreakdownWithFilter(ctx context.Context, filter AnalyticsFilter, granularity string, location *time.Location) (LatencySummary, []LatencyPercentiles, error) {
+	return s.UsageEvents.LatencyBreakdownWithFilter(ctx, filter, granularity, location)
 }
 
 func (s *Store) HourlyDistributionWithFilter(ctx context.Context, filter AnalyticsFilter, location *time.Location) ([]HourlyPoint, error) {

@@ -870,6 +870,34 @@ order by timestamp_ms, api_key_hash, analytics_model_value`, where)
 }
 
 func (r *repository) LatencyPercentilesWithFilter(ctx context.Context, filter AnalyticsFilter, granularity string, location *time.Location) ([]LatencyPercentiles, error) {
+	_, points, err := r.latencyBreakdown(ctx, filter, granularity, location, false, true)
+	return points, err
+}
+
+func (r *repository) LatencySummaryWithFilter(ctx context.Context, filter AnalyticsFilter) (LatencySummary, error) {
+	summary, _, err := r.latencyBreakdown(ctx, filter, "", nil, true, false)
+	return summary, err
+}
+
+// LatencyBreakdownWithFilter returns the window-wide p95 summary and the
+// per-bucket percentiles from a single pass over the matching samples. Callers
+// that need both must use it instead of the two dedicated readers so the same
+// rows are not scanned twice.
+func (r *repository) LatencyBreakdownWithFilter(ctx context.Context, filter AnalyticsFilter, granularity string, location *time.Location) (LatencySummary, []LatencyPercentiles, error) {
+	return r.latencyBreakdown(ctx, filter, granularity, location, true, true)
+}
+
+// latencyBreakdown streams the latency samples once and derives the requested
+// aggregates in Go. The projection is covered by
+// idx_usage_events_latency_window, so the scan avoids per-row table lookups.
+func (r *repository) latencyBreakdown(
+	ctx context.Context,
+	filter AnalyticsFilter,
+	granularity string,
+	location *time.Location,
+	withSummary bool,
+	withBuckets bool,
+) (LatencySummary, []LatencyPercentiles, error) {
 	where, args := analyticsWhere(filter)
 	query := fmt.Sprintf(`select
 	timestamp_ms,
@@ -880,15 +908,17 @@ and (latency_ms > 0 or ttft_ms > 0)
 order by timestamp_ms`, where)
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return LatencySummary{}, nil, err
 	}
 	defer rows.Close()
 
-	result := make([]LatencyPercentiles, 0)
+	points := make([]LatencyPercentiles, 0)
 	var currentBucketMS int64
 	hasCurrentBucket := false
 	latencies := make([]float64, 0)
 	ttfts := make([]float64, 0)
+	var allLatencies []float64
+	var allTTFTs []float64
 	flushBucket := func() {
 		if !hasCurrentBucket {
 			return
@@ -900,7 +930,7 @@ order by timestamp_ms`, where)
 		if value, ok := percentile95(ttfts); ok {
 			point.P95TTFTMS = sql.NullFloat64{Float64: value, Valid: true}
 		}
-		result = append(result, point)
+		points = append(points, point)
 		latencies = latencies[:0]
 		ttfts = ttfts[:0]
 	}
@@ -909,72 +939,50 @@ order by timestamp_ms`, where)
 		var latencyMS int64
 		var ttftMS int64
 		if err := rows.Scan(&timestampMS, &latencyMS, &ttftMS); err != nil {
-			return nil, err
+			return LatencySummary{}, nil, err
 		}
-		bucketMS := usage.AnalyticsBucketMS(timestampMS, granularity, location)
-		if !hasCurrentBucket || bucketMS != currentBucketMS {
-			flushBucket()
-			currentBucketMS = bucketMS
-			hasCurrentBucket = true
+		if withBuckets {
+			bucketMS := usage.AnalyticsBucketMS(timestampMS, granularity, location)
+			if !hasCurrentBucket || bucketMS != currentBucketMS {
+				flushBucket()
+				currentBucketMS = bucketMS
+				hasCurrentBucket = true
+			}
 		}
 		if latencyMS > 0 {
-			latencies = append(latencies, float64(latencyMS))
+			if withBuckets {
+				latencies = append(latencies, float64(latencyMS))
+			}
+			if withSummary {
+				allLatencies = append(allLatencies, float64(latencyMS))
+			}
 		}
 		if ttftMS > 0 {
-			ttfts = append(ttfts, float64(ttftMS))
+			if withBuckets {
+				ttfts = append(ttfts, float64(ttftMS))
+			}
+			if withSummary {
+				allTTFTs = append(allTTFTs, float64(ttftMS))
+			}
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return LatencySummary{}, nil, err
 	}
-	flushBucket()
-	return result, nil
-}
-
-func (r *repository) LatencySummaryWithFilter(ctx context.Context, filter AnalyticsFilter) (LatencySummary, error) {
-	where, args := analyticsWhere(filter)
-	query := fmt.Sprintf(`with samples(kind, value) as (
-	select 'latency', latency_ms from usage_events %s and latency_ms > 0
-	union all
-	select 'ttft', ttft_ms from usage_events %s and ttft_ms > 0
-), ranked as (
-	select
-		kind,
-		value,
-		row_number() over (partition by kind order by value) as sample_number,
-		count(*) over (partition by kind) as sample_count
-	from samples
-)
-select kind, value
-from ranked
-where sample_number = ((sample_count * 95) + 99) / 100`, where, where)
-	queryArgs := make([]any, 0, len(args)*2)
-	queryArgs = append(queryArgs, args...)
-	queryArgs = append(queryArgs, args...)
-	rows, err := r.db.QueryContext(ctx, query, queryArgs...)
-	if err != nil {
-		return LatencySummary{}, err
+	if withBuckets {
+		flushBucket()
 	}
-	defer rows.Close()
 
 	var summary LatencySummary
-	for rows.Next() {
-		var kind string
-		var value float64
-		if err := rows.Scan(&kind, &value); err != nil {
-			return LatencySummary{}, err
-		}
-		switch kind {
-		case "latency":
+	if withSummary {
+		if value, ok := percentile95(allLatencies); ok {
 			summary.P95LatencyMS = sql.NullFloat64{Float64: value, Valid: true}
-		case "ttft":
+		}
+		if value, ok := percentile95(allTTFTs); ok {
 			summary.P95TTFTMS = sql.NullFloat64{Float64: value, Valid: true}
 		}
 	}
-	if err := rows.Err(); err != nil {
-		return LatencySummary{}, err
-	}
-	return summary, nil
+	return summary, points, nil
 }
 
 func percentile95(values []float64) (float64, bool) {

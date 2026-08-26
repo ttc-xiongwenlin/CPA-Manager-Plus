@@ -213,6 +213,26 @@ var derivedIndexStatements = []struct {
 	{"idx_usage_monitoring_event_projection_timestamp", "usage_monitoring_event_projection_v1", `create index if not exists idx_usage_monitoring_event_projection_timestamp on usage_monitoring_event_projection_v1(timestamp_ms desc, event_id desc)`},
 	{"idx_usage_monitoring_event_projection_account_window", "usage_monitoring_event_projection_v1", `create index if not exists idx_usage_monitoring_event_projection_account_window on usage_monitoring_event_projection_v1(account_key, timestamp_ms, event_id)`},
 	{"idx_usage_monitoring_event_projection_model_timestamp", "usage_monitoring_event_projection_v1", `create index if not exists idx_usage_monitoring_event_projection_model_timestamp on usage_monitoring_event_projection_v1(analytics_model, timestamp_ms desc, event_id desc)`},
+	// search_text sits early in the projection row and averages kilobytes, so any
+	// row lookup drags in its overflow pages. Hour-granular analytics reads carry
+	// their scope and measure columns in the index instead, which keeps the window
+	// scan off the table entirely.
+	{"idx_usage_monitoring_event_projection_scope", "usage_monitoring_event_projection_v1", `create index if not exists idx_usage_monitoring_event_projection_scope
+		on usage_monitoring_event_projection_v1(
+			timestamp_ms, api_key_hash, auth_index, auth_file_snapshot,
+			source_hash, source, account_snapshot, auth_label_snapshot,
+			provider, auth_provider_snapshot, auth_project_id_snapshot,
+			model, resolved_model, service_tier, failed,
+			normalized_total_input_tokens, output_tokens, reasoning_tokens,
+			cached_tokens, cache_tokens, cache_read_tokens,
+			cache_creation_tokens, total_tokens, latency_ms)`},
+	// ttft_ms only lives on usage_events, so the p95 readers cannot use the
+	// projection; carry the monitoring filter columns here instead so they scan
+	// the index alone rather than looking up every wide usage_events row.
+	{"idx_usage_events_latency_scope", "usage_events", `create index if not exists idx_usage_events_latency_scope
+		on usage_events(
+			timestamp_ms, auth_index, api_key_hash, auth_file_snapshot,
+			source_hash, model, latency_ms, ttft_ms)`},
 	{"idx_usage_monitoring_header_latest_timestamp", usageMonitoringHeaderLatestTable, `create index if not exists idx_usage_monitoring_header_latest_timestamp on usage_monitoring_header_latest_v1(timestamp_ms desc, event_id desc)`},
 	{"idx_usage_event_identity_ledger_raw_event_id", usageEventIdentityLedger, `create index if not exists idx_usage_event_identity_ledger_raw_event_id on usage_event_identity_ledger(raw_event_id)`},
 	{"idx_usage_event_identity_ledger_bucket", usageEventIdentityLedger, `create index if not exists idx_usage_event_identity_ledger_bucket on usage_event_identity_ledger(bucket_ms)`},

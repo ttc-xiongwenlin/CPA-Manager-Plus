@@ -513,6 +513,11 @@ func Migrate(db *sql.DB) error {
 			header_trace_id text not null,
 			updated_at_ms integer not null
 		)`,
+		// Both window indexes were superseded by the scope-carrying indexes that
+		// derivedIndexStatements now prepares off the startup path. Dropping an
+		// index is cheap, so it stays inline with the rest of the schema.
+		`drop index if exists idx_usage_monitoring_event_projection_window`,
+		`drop index if exists idx_usage_events_latency_window`,
 		`create table if not exists usage_monitoring_header_latest_v1 (
 			snapshot_key text primary key,
 			event_id integer not null,

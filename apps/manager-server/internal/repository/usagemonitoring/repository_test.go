@@ -185,6 +185,12 @@ func TestRequestMonitoringProjectionTimestampIndexAvoidsTemporaryOrderBy(t *test
 	if _, err := sqlDB.Exec(`drop index idx_usage_monitoring_event_projection_timestamp`); err != nil {
 		t.Fatalf("drop monitoring projection timestamp index: %v", err)
 	}
+	// The analytics scope index also leads with timestamp_ms, so it satisfies the
+	// range on its own and would keep the plan off a full temporary sort. Drop it
+	// too, otherwise this control cannot show what the timestamp index buys.
+	if _, err := sqlDB.Exec(`drop index idx_usage_monitoring_event_projection_scope`); err != nil {
+		t.Fatalf("drop monitoring projection scope index: %v", err)
+	}
 	withoutIndex := explainMonitoringPlan(t, sqlDB, query, int64(1800000000000), int64(1800000200000), 100)
 	withoutIndexText := strings.Join(withoutIndex, "\n")
 	if strings.Contains(withoutIndexText, "idx_usage_monitoring_event_projection_timestamp") {

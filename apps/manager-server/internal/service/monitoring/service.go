@@ -958,8 +958,15 @@ func (s *Service) analytics(ctx context.Context, req Request) (Response, error) 
 	queries := newAnalyticsQueryGroup(ctx, analyticsPrefetchConcurrency)
 	defer queries.Close()
 
+	// The timeline percentiles and the summary p95 read the exact same latency
+	// samples. When both are requested a single pass produces both instead of
+	// scanning usage_events twice.
+	needsLatencyPercentiles := req.Include.Timeline || req.Include.AnomalyPoints
+	needsLatencySummary := req.Include.Summary && (!compactSummary || req.Include.SummaryPercentiles)
+	sharedLatencyBreakdown := needsLatencyPercentiles && needsLatencySummary
+
 	var latencyPercentiles []store.LatencyPercentiles
-	if req.Include.Timeline || req.Include.AnomalyPoints {
+	if needsLatencyPercentiles && !sharedLatencyBreakdown {
 		queries.Go(func(queryCtx context.Context) error {
 			var queryErr error
 			latencyPercentiles, queryErr = s.store.LatencyPercentilesWithFilter(queryCtx, filter, granularity, location)
@@ -1022,6 +1029,11 @@ func (s *Service) analytics(ctx context.Context, req Request) (Response, error) 
 	var credentialTimelinePoints []store.CredentialTimelinePoint
 	if req.Include.CredentialTimeline {
 		queries.Go(func(queryCtx context.Context) error {
+			points, available := s.monitoringReader.CredentialTimeline(queryCtx, filter, granularity, location)
+			if available {
+				credentialTimelinePoints = points
+				return nil
+			}
 			var queryErr error
 			credentialTimelinePoints, queryErr = s.store.CredentialTimelineWithFilter(queryCtx, filter, granularity, location)
 			return queryErr
@@ -1031,6 +1043,11 @@ func (s *Service) analytics(ctx context.Context, req Request) (Response, error) 
 	var apiKeyTimelinePoints []store.APIKeyTimelinePoint
 	if req.Include.APIKeyTimeline {
 		queries.Go(func(queryCtx context.Context) error {
+			points, available := s.monitoringReader.APIKeyTimeline(queryCtx, filter, granularity, location)
+			if available {
+				apiKeyTimelinePoints = points
+				return nil
+			}
 			var queryErr error
 			apiKeyTimelinePoints, queryErr = s.store.APIKeyTimelineWithFilter(queryCtx, filter, granularity, location)
 			return queryErr
@@ -1124,8 +1141,12 @@ func (s *Service) analytics(ctx context.Context, req Request) (Response, error) 
 			}
 		}
 		var latencySummary store.LatencySummary
-		if !compactSummary || req.Include.SummaryPercentiles {
-			latencySummary, err = s.store.LatencySummaryWithFilter(ctx, filter)
+		if needsLatencySummary {
+			if sharedLatencyBreakdown {
+				latencySummary, latencyPercentiles, err = s.store.LatencyBreakdownWithFilter(ctx, filter, granularity, location)
+			} else {
+				latencySummary, err = s.store.LatencySummaryWithFilter(ctx, filter)
+			}
 			if err != nil {
 				return Response{}, err
 			}
@@ -1221,6 +1242,9 @@ func (s *Service) analytics(ctx context.Context, req Request) (Response, error) 
 		pointsAvailable := false
 		if hourlySnapshotAvailable && hourlyTimelineRepresentable {
 			points, pointsAvailable = s.hourlyReader.AnalyticsTimeline(ctx, hourlySnapshot, granularity, location)
+		}
+		if !pointsAvailable {
+			points, pointsAvailable = s.monitoringReader.Timeline(ctx, filter, granularity, location)
 		}
 		if !pointsAvailable {
 			points, err = s.store.TimelineWithFilter(ctx, filter, granularity, location)
