@@ -15,6 +15,7 @@ import {
   hasActiveCodexInspectionAuthenticationFailure,
   type AuthFileCodexStatusSummary,
 } from '@/features/authFiles/model/credentialStatus';
+import { UNTAGGED_BUCKET_FILTER } from '@/features/authFiles/bucketOptions';
 import { resolveCodexPlanType } from '@/utils/quota/resolvers';
 import {
   compareQuotaResetLabels,
@@ -178,6 +179,7 @@ export interface AccountRow {
   authIndex: string;
   projectId: string;
   note?: string;
+  bucket: string;
   priority: number | null;
   createdAtMs: number | null;
   updatedAtMs: number | null;
@@ -217,6 +219,8 @@ export interface AccountRowFilters {
   status: AccountStatusFilter;
   plan: string;
   quotaBand: AccountQuotaBand;
+  /** 'all' (or absent) keeps every row; UNTAGGED_BUCKET_FILTER selects untagged ones. */
+  bucket?: string;
   search: string;
   codexStatusBySelectionKey?: ReadonlyMap<string, AuthFileCodexStatusSummary>;
   requestEvidenceBySelectionKey?: AccountRequestEvidenceBySelectionKey;
@@ -460,6 +464,7 @@ export const buildAccountRows = (
       authIndex,
       projectId: readProjectId(file),
       note: readString(file.note),
+      bucket: readString(file.bucket).trim(),
       priority: readNumber(file.priority),
       createdAtMs: readAuthFileCreatedAtMs(file),
       updatedAtMs,
@@ -665,6 +670,7 @@ export const filterAccountRows = (rows: AccountRow[], filters: AccountRowFilters
       return false;
     }
     if (!matchesQuotaBand(row, filters.quotaBand)) return false;
+    if (!matchesBucketFilter(row, filters.bucket)) return false;
     if (!search) return true;
     const values = [
       row.accountLabel,
@@ -674,6 +680,7 @@ export const filterAccountRows = (rows: AccountRow[], filters: AccountRowFilters
       row.authIndex,
       row.projectId,
       row.note,
+      row.bucket,
       row.statusMessage,
       row.raw.state,
       row.raw.status,
@@ -781,6 +788,14 @@ const matchesStatusFilter = (
     );
   }
   return true;
+};
+
+// Compared case-sensitively because CPA resolves `codex-buckets` keys that way:
+// a 'team-a' filter must not claim accounts tagged 'Team-A'.
+const matchesBucketFilter = (row: AccountRow, filter: string | undefined) => {
+  if (!filter || filter === 'all') return true;
+  if (filter === UNTAGGED_BUCKET_FILTER) return row.bucket === '';
+  return row.bucket === filter;
 };
 
 const matchesQuotaBand = (row: AccountRow, band: AccountQuotaBand) => {

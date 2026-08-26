@@ -11,9 +11,11 @@ import {
 } from './analyticsAdapters';
 import { buildMonitoringAccountRowId, normalizeMonitoringProvider } from './accountIdentity';
 import { getRangeBounds } from './range';
+import { UNTAGGED_BUCKET_FILTER } from '@/features/authFiles/bucketOptions';
 import type {
   MonitoringAccountRow,
   MonitoringApiKeyRow,
+  MonitoringAuthMeta,
   MonitoringCustomTimeRange,
   MonitoringEventRow,
   MonitoringRealtimeRow,
@@ -98,9 +100,19 @@ const hasCacheActivity = (
   return cachedTokens > 0 || cacheReadTokens > 0 || cacheCreationTokens > 0;
 };
 
+// Bucket names are matched case-sensitively against CPA's routing pools
+// (sdk/cliproxy/auth/conductor_selection.go compares them verbatim), matching
+// authFilesPageModel.ts's matchesAuthFilesBucketFilter — do not lowercase.
+const matchesMonitoringBucket = (metaBucket: string | undefined, filterBucket: string): boolean => {
+  const trimmedFilter = filterBucket.trim();
+  const value = (metaBucket || '').trim();
+  return trimmedFilter === UNTAGGED_BUCKET_FILTER ? value === '' : value === trimmedFilter;
+};
+
 export const buildScopeFilteredRows = (
   rows: MonitoringEventRow[],
-  scopeFilters?: MonitoringScopeFilters
+  scopeFilters?: MonitoringScopeFilters,
+  authMetaMap?: Map<string, MonitoringAuthMeta>
 ) => {
   if (!scopeFilters) return rows;
 
@@ -124,6 +136,21 @@ export const buildScopeFilteredRows = (
       : null;
   const cacheStatus = normalizeScopeValue(scopeFilters.cacheStatus);
   const headerTraceId = normalizeScopeValue(scopeFilters.headerTraceId);
+  // Bucket never touches the event/usage payload directly (see the design doc's
+  // architecture section) — it is an attribute of the account, so a bucket
+  // scope filter is resolved by expanding it into the auth indices whose
+  // accounts carry it, then constraining on authIndex like the account filter
+  // above. Computed eagerly (not lazily inside the predicate) so that an
+  // active-but-unresolvable bucket (e.g. authMetaMap missing) constrains to an
+  // empty set rather than silently no-opping — an unfiltered result is worse
+  // than an empty one here (see the design doc's error-handling table).
+  const bucketAuthIndices = isActiveScopeFilterValue(scopeFilters.bucket)
+    ? new Set(
+        Array.from((authMetaMap ?? new Map<string, MonitoringAuthMeta>()).entries())
+          .filter(([, meta]) => matchesMonitoringBucket(meta.bucket, scopeFilters.bucket!))
+          .map(([authIndex]) => normalizeScopeValue(authIndex))
+      )
+    : null;
 
   return rows.filter((row) => {
     if (isActiveScopeFilterValue(scopeFilters.account)) {
@@ -202,6 +229,10 @@ export const buildScopeFilteredRows = (
       isActiveScopeFilterValue(scopeFilters.apiKeyHash) &&
       normalizeScopeValue(row.apiKeyHash) !== apiKeyHash
     ) {
+      return false;
+    }
+
+    if (bucketAuthIndices && !bucketAuthIndices.has(normalizeScopeValue(row.authIndex))) {
       return false;
     }
 

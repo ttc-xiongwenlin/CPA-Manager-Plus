@@ -9,6 +9,7 @@ import { CoolingPolicySelect } from '@/components/providers/CoolingPolicySelect'
 import { IconCode, IconCopy, IconRefreshCw } from '@/components/ui/icons';
 import type { AccountRow } from '@/features/accounts/model/accountRows';
 import { getProviderLabel } from '@/features/accounts/model/accountsPagePresentation';
+import { buildBucketEditOptions } from '@/features/authFiles/bucketOptions';
 import type { UseAuthFileConfigurationEditorResult } from '@/features/authFiles/hooks/useAuthFileConfigurationEditor';
 import {
   AUTH_FILE_WEIGHT_MAX,
@@ -24,6 +25,7 @@ type AccountConfigurationTabProps = {
   disableControls: boolean;
   editor: UseAuthFileConfigurationEditorResult;
   onCopyText: (text: string) => void | Promise<void>;
+  bucketOptions: string[];
 };
 
 export function AccountConfigurationTab({
@@ -31,6 +33,7 @@ export function AccountConfigurationTab({
   disableControls,
   editor,
   onCopyText,
+  bucketOptions,
 }: AccountConfigurationTabProps) {
   const { t } = useTranslation();
   const reloadButtonId = useId();
@@ -67,6 +70,20 @@ export function AccountConfigurationTab({
     ],
     [t]
   );
+  // Keep a hand-written tag selectable so saving an unrelated field never
+  // silently drops a bucket that is missing from the configured vocabulary.
+  const draftBucket = draft?.bucket ?? '';
+  const bucketSelectOptions = useMemo(
+    () => [
+      { value: '', label: t('auth_files.bucket_none') },
+      ...buildBucketEditOptions(bucketOptions, draftBucket ? [draftBucket] : []).map((bucket) => ({
+        value: bucket,
+        label: bucket,
+      })),
+    ],
+    [bucketOptions, draftBucket, t]
+  );
+
   const cloakModeOptions = useMemo(
     () => [
       { value: '', label: t('accounts.config_cloak_inherit') },
@@ -213,6 +230,21 @@ export function AccountConfigurationTab({
             disabled={disabled}
             onChange={(event) => editor.updateField('weight', event.target.value)}
           />
+          {capabilities.codexBucket ? (
+            <div>
+              <div className={styles.configurationFieldLabel}>
+                {t('auth_files.bucket_display')}
+              </div>
+              <Select
+                value={draft.bucket}
+                options={bucketSelectOptions}
+                onChange={(value) => editor.updateField('bucket', value)}
+                disabled={disabled}
+                ariaLabel={t('auth_files.bucket_display')}
+                fullWidth
+              />
+            </div>
+          ) : null}
           <div className={styles.configurationFieldFull}>
             <Input
               label={t('auth_files.note_label')}

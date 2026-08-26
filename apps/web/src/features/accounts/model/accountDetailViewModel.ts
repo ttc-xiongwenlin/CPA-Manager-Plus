@@ -1454,6 +1454,7 @@ const buildAuthFields = (row: AccountRow): AccountDetailField[] =>
   compactFields([
     field('authIndex', 'accounts.detail_auth_index', row.authIndex),
     field('projectId', 'accounts.detail_project_id', row.projectId),
+    field('bucket', 'auth_files.bucket_display', row.bucket),
     field(
       'runtime',
       'accounts.detail_runtime_source',

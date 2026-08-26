@@ -56,6 +56,7 @@ export type AuthFileFieldsPatch = {
   priority?: number;
   weight?: number | null;
   note?: string;
+  bucket?: string;
   'excluded-models'?: string[] | null;
   excluded_models?: string[] | null;
   excludedModels?: null;
@@ -700,6 +701,15 @@ export const applyAuthFileFieldsPatchToRecord = (
       next.note = value;
     } else {
       delete next.note;
+    }
+  }
+
+  if (fields.bucket !== undefined) {
+    const value = fields.bucket.trim();
+    if (value) {
+      next.bucket = value;
+    } else {
+      delete next.bucket;
     }
   }
 

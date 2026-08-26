@@ -57,6 +57,12 @@ import {
   useAuthFilesData,
   type AuthFilesCredentialMutation,
 } from '@/features/authFiles/hooks/useAuthFilesData';
+import {
+  UNTAGGED_BUCKET_FILTER,
+  buildBucketEditOptions,
+  collectObservedBucketNames,
+} from '@/features/authFiles/bucketOptions';
+import { useAuthFilesBucketOptions } from '@/features/authFiles/hooks/useAuthFilesBucketOptions';
 import { useAuthFilesOauth } from '@/features/authFiles/hooks/useAuthFilesOauth';
 import { useAuthFilesModels } from '@/features/authFiles/hooks/useAuthFilesModels';
 import { useAuthFileConfigurationEditor } from '@/features/authFiles/hooks/useAuthFileConfigurationEditor';
@@ -1003,6 +1009,8 @@ export function AccountsPage() {
     onCredentialMutation: handleCredentialMutation,
   });
 
+  const bucketOptions = useAuthFilesBucketOptions(files);
+
   const [oauthViewMode, setOauthViewMode] = useState<'diagram' | 'list'>('list');
   const oauthState = useAuthFilesOauth({
     viewMode: oauthViewMode,
@@ -1101,6 +1109,9 @@ export function AccountsPage() {
   const [planFilter, setPlanFilter] = useState(() => initialWorkspaceUrlState.current.planFilter);
   const [quotaBandFilter, setQuotaBandFilter] = useState<AccountQuotaBand>(
     () => initialWorkspaceUrlState.current.quotaBandFilter
+  );
+  const [bucketFilter, setBucketFilter] = useState(
+    () => initialWorkspaceUrlState.current.bucketFilter
   );
   const [operationalFilter, setOperationalFilter] = useState<AccountOperationalFilter>(
     () => initialWorkspaceUrlState.current.operationalFilter
@@ -3752,6 +3763,19 @@ export function AccountsPage() {
   );
   const providerOptions = useMemo(() => getProviderOptions(rows), [rows]);
   const planOptions = useMemo(() => getPlanOptions(rows), [rows]);
+  // Configured names plus anything already applied, so a hand-written tag stays
+  // selectable; the active filter is kept even if its last account disappears,
+  // otherwise the Select would render blank against a value with no option.
+  const bucketFilterOptions = useMemo(
+    () =>
+      buildBucketEditOptions(bucketOptions, [
+        ...collectObservedBucketNames(files),
+        ...(bucketFilter !== 'all' && bucketFilter !== UNTAGGED_BUCKET_FILTER
+          ? [bucketFilter]
+          : []),
+      ]),
+    [bucketFilter, bucketOptions, files]
+  );
   const recommendations = useMemo(
     () => buildAccountRecommendations(rows, requestEvidenceBySelectionKey),
     [requestEvidenceBySelectionKey, rows]
@@ -3767,11 +3791,13 @@ export function AccountsPage() {
         status: statusFilter,
         plan: planFilter,
         quotaBand: quotaBandFilter,
+        bucket: bucketFilter,
         search,
         codexStatusBySelectionKey,
         requestEvidenceBySelectionKey,
       }),
     [
+      bucketFilter,
       codexStatusBySelectionKey,
       planFilter,
       providerFilter,
@@ -4346,6 +4372,7 @@ export function AccountsPage() {
   useEffect(() => {
     setPage(1);
   }, [
+    bucketFilter,
     operationalFilter,
     pageSize,
     planFilter,
@@ -4362,6 +4389,7 @@ export function AccountsPage() {
       statusFilter,
       planFilter,
       quotaBandFilter,
+      bucketFilter,
       operationalFilter,
       accountSort,
       pageSize,
@@ -4370,6 +4398,7 @@ export function AccountsPage() {
   }, [
     accountDisplayMode,
     accountSort,
+    bucketFilter,
     operationalFilter,
     pageSize,
     planFilter,
@@ -4386,6 +4415,7 @@ export function AccountsPage() {
       statusFilter,
       planFilter,
       quotaBandFilter,
+      bucketFilter,
       operationalFilter,
       accountSort,
       pageSize,
@@ -4406,6 +4436,7 @@ export function AccountsPage() {
       accountDisplayMode,
       accountSort,
       activeView,
+      bucketFilter,
       detailTab,
       healthMode,
       oauthExcludedEditorProvider,
@@ -4492,6 +4523,7 @@ export function AccountsPage() {
       setStatusFilter(next.statusFilter);
       setPlanFilter(next.planFilter);
       setQuotaBandFilter(next.quotaBandFilter);
+      setBucketFilter(next.bucketFilter);
       setOperationalFilter(next.operationalFilter);
       setAccountSort(next.accountSort);
       setPageSize(next.pageSize);
@@ -5974,11 +6006,14 @@ export function AccountsPage() {
   const selectedQuotaFilterLabel =
     quotaBandFilter === 'all' ? t('accounts.quota_all') : t(`accounts.quota_${quotaBandFilter}`);
   const selectedOperationalFilterLabel = t(`accounts.operational_${effectiveOperationalFilter}`);
+  const selectedBucketFilterLabel =
+    bucketFilter === UNTAGGED_BUCKET_FILTER ? t('auth_files.bucket_filter_untagged') : bucketFilter;
   const activeMobileFilterCount = [
     statusFilter !== 'all',
     effectiveOperationalFilter !== 'all',
     planFilter !== 'all',
     quotaBandFilter !== 'all',
+    bucketFilter !== 'all',
     accountSort.key !== 'default',
   ].filter(Boolean).length;
   const mobileFilterSummary =
@@ -5989,6 +6024,7 @@ export function AccountsPage() {
           effectiveOperationalFilter !== 'all' ? selectedOperationalFilterLabel : null,
           planFilter !== 'all' ? selectedPlanFilterLabel : null,
           quotaBandFilter !== 'all' ? selectedQuotaFilterLabel : null,
+          bucketFilter !== 'all' ? selectedBucketFilterLabel : null,
           accountSort.key !== 'default' ? selectedAccountSortLabel : null,
         ]
           .filter(Boolean)
@@ -6298,6 +6334,21 @@ export function AccountsPage() {
           triggerClassName={styles.toolbarSelectTrigger}
         />
       </div>
+      {bucketFilterOptions.length > 0 ? (
+        <div className={styles.filterField}>
+          <Select
+            value={bucketFilter}
+            options={[
+              { value: 'all', label: t('auth_files.bucket_filter_all') },
+              ...bucketFilterOptions.map((bucket) => ({ value: bucket, label: bucket })),
+              { value: UNTAGGED_BUCKET_FILTER, label: t('auth_files.bucket_filter_untagged') },
+            ]}
+            onChange={setBucketFilter}
+            ariaLabel={t('auth_files.bucket_filter_label')}
+            triggerClassName={styles.toolbarSelectTrigger}
+          />
+        </div>
+      ) : null}
     </>
   );
 
@@ -6918,6 +6969,14 @@ export function AccountsPage() {
                     {item.identity.planType ? (
                       <span className={styles.accountMetaPill}>{item.identity.planType}</span>
                     ) : null}
+                    {row.bucket ? (
+                      <span
+                        className={styles.accountMetaPill}
+                        title={`${t('auth_files.bucket_display')}: ${row.bucket}`}
+                      >
+                        {row.bucket}
+                      </span>
+                    ) : null}
                   </div>
                   <div className={styles.accountIdentityCopyLine}>
                     <button
@@ -7271,6 +7330,7 @@ export function AccountsPage() {
             disableControls={disableControls}
             editor={configurationEditor}
             onCopyText={copyTextWithNotification}
+            bucketOptions={bucketOptions}
           />
         );
       }

@@ -42,6 +42,7 @@ const makeDraft = (
   priority: '',
   weight: '',
   note: '',
+  bucket: '',
   headersText: '',
   excludedModelsText: '',
   disableCooling: 'inherit',

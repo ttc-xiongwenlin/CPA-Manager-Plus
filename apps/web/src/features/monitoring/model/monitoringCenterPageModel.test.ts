@@ -22,19 +22,24 @@ import type {
 import {
   buildAccountOptions,
   buildApiKeyOptionsFromRows,
+  buildBucketOptionsFromValues,
   buildChannelOptionsFromValues,
   buildAccountQuotaRefreshFailureEntry,
   buildObservedCodexAccountQuotaEntry,
+  buildMonitoringInitialDrilldownFilters,
   buildMonitoringInitialStateFromQuery,
   buildModelOptionsFromValues,
   buildProviderOptionsFromValues,
   buildSyncPriceModels,
+  hasActiveMonitoringScopeFilter,
   mergeObservedAccountQuotaEntry,
   mergeObservedAccountQuotaState,
   requestAccountQuota,
   updateMonitoringAccountQuotaStateByRowId,
+  type MonitoringActiveScopeFilterState,
 } from './monitoringCenterPageModel';
 import { getDefaultMonitoringCenterUiState } from '@/features/monitoring/monitoringCenterUiState';
+import { UNTAGGED_BUCKET_FILTER } from '@/features/authFiles/bucketOptions';
 
 vi.mock('@/utils/quota', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/utils/quota')>();
@@ -256,6 +261,78 @@ describe('monitoringCenterPageModel filter options', () => {
     expect(state.customEndInput).toBeTruthy();
   });
 
+  it('switches to the realtime tab when only a bucket drilldown is present', () => {
+    const state = buildMonitoringInitialStateFromQuery(
+      '?bucket=anon',
+      getDefaultMonitoringCenterUiState()
+    );
+
+    expect(state.activeDataTab).toBe('realtime');
+  });
+});
+
+describe('buildMonitoringInitialDrilldownFilters', () => {
+  it('defaults the bucket drilldown to "all", not "" (matches its Select vocabulary)', () => {
+    // Regression: drilldownBucket used to default to '', which no option in
+    // buildBucketOptionsFromValues carries, so the Select rendered blank on
+    // every normal page load instead of "All Buckets".
+    expect(buildMonitoringInitialDrilldownFilters('').bucket).toBe('all');
+    expect(buildMonitoringInitialDrilldownFilters('?other=1').bucket).toBe('all');
+  });
+
+  it('reads an explicit bucket query param verbatim', () => {
+    expect(buildMonitoringInitialDrilldownFilters('?bucket=anon').bucket).toBe('anon');
+  });
+
+  it('still defaults the other structured drilldown filters to "" (unset)', () => {
+    const filters = buildMonitoringInitialDrilldownFilters('');
+    expect(filters.authFile).toBe('');
+    expect(filters.projectId).toBe('');
+    expect(filters.requestType).toBe('');
+    expect(filters.cacheStatus).toBe('');
+    expect(filters.minLatencyMs).toBeUndefined();
+  });
+});
+
+describe('hasActiveMonitoringScopeFilter', () => {
+  const baseFilters: MonitoringActiveScopeFilterState = {
+    account: 'all',
+    provider: 'all',
+    model: 'all',
+    channel: 'all',
+    bucket: 'all',
+    apiKeyHash: 'all',
+    headerTraceId: 'all',
+    status: 'all',
+    authFile: '',
+    projectId: '',
+    requestType: '',
+    minLatencyMs: undefined,
+    cacheStatus: '',
+  };
+
+  it('is inactive when every dimension, including bucket, is at its default', () => {
+    expect(hasActiveMonitoringScopeFilter(baseFilters)).toBe(false);
+  });
+
+  it('treats a default bucket of "all" as inactive, same as the other selector dimensions', () => {
+    // Regression: the empty-state used to check Boolean(drilldownBucket),
+    // which is true for the string 'all' — once #1 was fixed to default the
+    // bucket to 'all' instead of '', that stale check would make the "no
+    // filter" empty state permanently unreachable and hide the setup hints.
+    expect(hasActiveMonitoringScopeFilter({ ...baseFilters, bucket: 'all' })).toBe(false);
+  });
+
+  it('is active once a real bucket is selected', () => {
+    expect(hasActiveMonitoringScopeFilter({ ...baseFilters, bucket: 'anon' })).toBe(true);
+  });
+
+  it('is active for the untagged bucket sentinel too', () => {
+    expect(hasActiveMonitoringScopeFilter({ ...baseFilters, bucket: '__untagged__' })).toBe(true);
+  });
+});
+
+describe('monitoringCenterPageModel dynamic filter options', () => {
   it('keeps alternate candidates when a dynamic filter already has a selected value', () => {
     expect(
       buildProviderOptionsFromValues(['codex', 'gemini'], 'codex', t).map((item) => item.value)
@@ -273,6 +350,9 @@ describe('monitoringCenterPageModel filter options', () => {
     expect(
       buildChannelOptionsFromValues(['Primary', 'Backup'], 'Primary', t).map((item) => item.value)
     ).toEqual(['all', 'Backup', 'Primary']);
+    expect(
+      buildBucketOptionsFromValues(['anon', 'bulk'], 'anon', t).map((item) => item.value)
+    ).toEqual(['all', 'anon', 'bulk', UNTAGGED_BUCKET_FILTER]);
     expect(
       buildApiKeyOptionsFromRows(
         [createApiKeyRow('key-a', 'Key A'), createApiKeyRow('key-b', 'Key B')],

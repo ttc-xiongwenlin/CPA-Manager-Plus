@@ -23,6 +23,7 @@ import { buildMonitoringAccountRowId } from '../model/accountIdentity';
 import type { MonitoringAnalyticsEventRow } from '@/services/api/usageService';
 import { buildSourceInfoMap } from '@/utils/sourceResolver';
 import { sha256Hex } from '@/utils/apiKeyHash';
+import { UNTAGGED_BUCKET_FILTER } from '@/features/authFiles/bucketOptions';
 import type { AuthFileItem } from '@/types';
 
 const createMonitoringEventRow = (
@@ -702,6 +703,79 @@ describe('buildScopeFilteredRows', () => {
         (row) => row.id
       )
     ).toEqual(['slow-cache-miss']);
+  });
+
+  // Regression coverage for the "usage payload, no analytics" path
+  // (useMonitoringData.ts falls back to buildScopeFilteredRows when
+  // analyticsData is unavailable — usage statistics disabled, manager-server
+  // unreachable, or the analytics request failed). Bucket never touches the
+  // event/usage payload directly (see the design doc), so it must be resolved
+  // here by expanding the bucket into the auth indices whose accounts carry
+  // it, exactly like the analytics-path builders (analyticsAdapters.ts,
+  // usageAnalyticsModel.ts) already do.
+  describe('bucket scope filtering', () => {
+    const authMetaMap = buildMonitoringAuthMetaMap([
+      { name: 'anon1.json', provider: 'codex', authIndex: 'auth-anon-1', bucket: 'anon' },
+      { name: 'anon2.json', provider: 'codex', authIndex: 'auth-anon-2', bucket: 'anon' },
+      { name: 'bulk1.json', provider: 'codex', authIndex: 'auth-bulk-1', bucket: 'bulk' },
+      { name: 'plain1.json', provider: 'codex', authIndex: 'auth-untagged-1' },
+    ]);
+    const rows = [
+      createMonitoringEventRow({ id: 'anon-row-1', authIndex: 'auth-anon-1' }),
+      createMonitoringEventRow({ id: 'anon-row-2', authIndex: 'auth-anon-2' }),
+      createMonitoringEventRow({ id: 'bulk-row', authIndex: 'auth-bulk-1' }),
+      createMonitoringEventRow({ id: 'untagged-row', authIndex: 'auth-untagged-1' }),
+    ];
+
+    it('constrains locally-built rows to the auth indices carrying the selected bucket', () => {
+      expect(
+        buildScopeFilteredRows(rows, { bucket: 'anon' }, authMetaMap).map((row) => row.id)
+      ).toEqual(['anon-row-1', 'anon-row-2']);
+    });
+
+    it('matches the untagged sentinel against accounts with no bucket tag', () => {
+      expect(
+        buildScopeFilteredRows(rows, { bucket: UNTAGGED_BUCKET_FILTER }, authMetaMap).map(
+          (row) => row.id
+        )
+      ).toEqual(['untagged-row']);
+    });
+
+    it('returns no rows rather than an unfiltered set when a bucket matches nothing', () => {
+      expect(
+        buildScopeFilteredRows(rows, { bucket: 'ghost' }, authMetaMap).map((row) => row.id)
+      ).toEqual([]);
+    });
+
+    it('leaves other rows out when no auth meta map is supplied for an active bucket filter', () => {
+      // An active bucket filter that cannot be resolved must still constrain
+      // to an empty set — never silently fall back to unfiltered rows.
+      expect(buildScopeFilteredRows(rows, { bucket: 'anon' }).map((row) => row.id)).toEqual([]);
+    });
+
+    it('ignores the bucket dimension entirely when no bucket filter is active', () => {
+      expect(
+        buildScopeFilteredRows(rows, { bucket: 'all' }, authMetaMap).map((row) => row.id)
+      ).toEqual(['anon-row-1', 'anon-row-2', 'bulk-row', 'untagged-row']);
+    });
+
+    it('matches bucket names case-sensitively, keeping Anon and anon as distinct pools', () => {
+      const caseAuthMetaMap = buildMonitoringAuthMetaMap([
+        { name: 'a.json', provider: 'codex', authIndex: 'auth-a', bucket: 'Anon' },
+        { name: 'b.json', provider: 'codex', authIndex: 'auth-b', bucket: 'anon' },
+      ]);
+      const caseRows = [
+        createMonitoringEventRow({ id: 'row-a', authIndex: 'auth-a' }),
+        createMonitoringEventRow({ id: 'row-b', authIndex: 'auth-b' }),
+      ];
+
+      expect(
+        buildScopeFilteredRows(caseRows, { bucket: 'Anon' }, caseAuthMetaMap).map((row) => row.id)
+      ).toEqual(['row-a']);
+      expect(
+        buildScopeFilteredRows(caseRows, { bucket: 'anon' }, caseAuthMetaMap).map((row) => row.id)
+      ).toEqual(['row-b']);
+    });
   });
 
   it('clamps local summary cache rates and respects resolved GPT-5.6 aliases', () => {

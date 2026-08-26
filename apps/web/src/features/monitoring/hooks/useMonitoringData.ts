@@ -707,8 +707,8 @@ export function useMonitoringData({
     [allRows, customTimeRange, searchApiKeyHash, searchQuery, timeRange]
   );
   const filteredRows = useMemo(
-    () => buildScopeFilteredRows(rangeFilteredRows, scopeFilters),
-    [rangeFilteredRows, scopeFilters]
+    () => buildScopeFilteredRows(rangeFilteredRows, scopeFilters, authMetaMap),
+    [authMetaMap, rangeFilteredRows, scopeFilters]
   );
   const statsRows = useMemo(() => filteredRows.filter(shouldIncludeInStats), [filteredRows]);
 

@@ -159,3 +159,49 @@ describe('accountsWorkspaceUrlState', () => {
     ).toBe('disabled_with_reset');
   });
 });
+
+describe('accountsWorkspaceUrlState codex bucket filter', () => {
+  it('round-trips a bucket filter and keeps the default out of the URL', () => {
+    const search = writeAccountsWorkspaceUrlSearch(
+      '',
+      {
+        ...DEFAULT_ACCOUNTS_WORKSPACE_UI_STATE,
+        view: 'accounts',
+        healthMode: 'local',
+        bucketFilter: 'team-a',
+        account: null,
+        detailTab: 'overview',
+        editor: null,
+        editorProvider: '',
+      },
+      DEFAULT_ACCOUNTS_WORKSPACE_UI_STATE
+    );
+
+    expect(search).toBe('?bucket=team-a');
+    expect(readAccountsWorkspaceUrlState(search, DEFAULT_ACCOUNTS_WORKSPACE_UI_STATE).bucketFilter).toBe(
+      'team-a'
+    );
+    expect(
+      writeAccountsWorkspaceUrlSearch(
+        '',
+        {
+          ...DEFAULT_ACCOUNTS_WORKSPACE_UI_STATE,
+          view: 'accounts',
+          healthMode: 'local',
+          account: null,
+          detailTab: 'overview',
+          editor: null,
+          editorProvider: '',
+        },
+        DEFAULT_ACCOUNTS_WORKSPACE_UI_STATE
+      )
+    ).toBe('');
+  });
+
+  it('carries an arbitrary configured bucket name, unlike the enum-backed filters', () => {
+    expect(
+      readAccountsWorkspaceUrlState('?bucket=__untagged__', DEFAULT_ACCOUNTS_WORKSPACE_UI_STATE)
+        .bucketFilter
+    ).toBe('__untagged__');
+  });
+});

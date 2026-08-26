@@ -1342,6 +1342,74 @@ describe('authFilesApi patchFieldsForAuthIndexes', () => {
     );
   });
 
+  it('sets the bucket tag on the underlying auth record', async () => {
+    const rawText = JSON.stringify({
+      type: 'codex',
+      auth_index: 'auth-1',
+      priority: 5,
+    });
+    mocks.getRaw.mockResolvedValue({ data: new Blob([rawText]) });
+    mocks.postForm.mockResolvedValue({
+      status: 'ok',
+      uploaded: 1,
+      files: ['codex-source.json'],
+      failed: [],
+    });
+    const target = {
+      name: 'codex-source.json',
+      runtimeId: 'runtime-1',
+      authIndex: 'auth-1',
+      provider: 'codex',
+    };
+
+    await authFilesApi.patchFieldsForAuthIndexes('codex-source.json', [target], [target], {
+      bucket: '  team  ',
+    });
+
+    await expect(getUploadedFile().text()).resolves.toBe(
+      JSON.stringify({
+        type: 'codex',
+        auth_index: 'auth-1',
+        priority: 5,
+        bucket: 'team',
+      })
+    );
+  });
+
+  it('clears the bucket tag on the underlying auth record when patched with an empty string', async () => {
+    const rawText = JSON.stringify({
+      type: 'codex',
+      auth_index: 'auth-1',
+      priority: 5,
+      bucket: 'team',
+    });
+    mocks.getRaw.mockResolvedValue({ data: new Blob([rawText]) });
+    mocks.postForm.mockResolvedValue({
+      status: 'ok',
+      uploaded: 1,
+      files: ['codex-source.json'],
+      failed: [],
+    });
+    const target = {
+      name: 'codex-source.json',
+      runtimeId: 'runtime-1',
+      authIndex: 'auth-1',
+      provider: 'codex',
+    };
+
+    await authFilesApi.patchFieldsForAuthIndexes('codex-source.json', [target], [target], {
+      bucket: '',
+    });
+
+    await expect(getUploadedFile().text()).resolves.toBe(
+      JSON.stringify({
+        type: 'codex',
+        auth_index: 'auth-1',
+        priority: 5,
+      })
+    );
+  });
+
   it('falls back to a verified physical source write for plugin virtual fields', async () => {
     const conflict = Object.assign(
       new Error(

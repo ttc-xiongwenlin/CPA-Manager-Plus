@@ -4,6 +4,7 @@ import type {
   MonitoringAnalyticsEventRow,
 } from '@/services/api/usageService';
 import { buildSourceInfoMap } from '@/utils/sourceResolver';
+import { UNTAGGED_BUCKET_FILTER } from '@/features/authFiles/bucketOptions';
 import {
   buildAnalyticsFilters,
   buildMonitoringAccountFilterValue,
@@ -14,6 +15,7 @@ import {
   buildUsageDetailsFromAnalyticsEvents,
   parseMonitoringAccountFilterValue,
 } from './analyticsAdapters';
+import type { MonitoringAuthMeta } from './types';
 
 describe('buildUsageDetailsFromAnalyticsEvents', () => {
   it('maps resolved model and auth project snapshots into usage details', () => {
@@ -173,6 +175,7 @@ describe('buildAnalyticsFilters', () => {
             unavailable: false,
             runtimeOnly: false,
             planType: 'pro',
+            bucket: '',
             updatedAt: '',
           },
         ],
@@ -343,6 +346,7 @@ describe('buildAnalyticsFilters', () => {
           unavailable: false,
           runtimeOnly: false,
           planType: 'pro',
+          bucket: '',
           updatedAt: '',
         },
       ],
@@ -369,6 +373,7 @@ describe('buildAnalyticsFilters', () => {
           unavailable: false,
           runtimeOnly: false,
           planType: 'pro',
+          bucket: '',
           updatedAt: '',
         },
       ],
@@ -524,6 +529,7 @@ describe('buildFilterOptionsFromAnalytics', () => {
             unavailable: false,
             runtimeOnly: false,
             planType: 'pro',
+            bucket: '',
             updatedAt: '',
           },
         ],
@@ -741,6 +747,7 @@ describe('analytics failure source display', () => {
         unavailable: false,
         runtimeOnly: false,
         planType: 'pro',
+        bucket: '',
         updatedAt: '',
       },
     ],
@@ -869,5 +876,106 @@ describe('analytics failure source display', () => {
     expect(rows[0].label).toBe('Team Auth');
     expect(rows[0].channel).toBe('Production Relay');
     expect(rows[0].label).not.toBe('source-hash');
+  });
+});
+
+const meta = (
+  authIndex: string,
+  bucket: string,
+  provider = 'codex'
+): [string, MonitoringAuthMeta] => [
+  authIndex,
+  {
+    authIndex,
+    label: authIndex,
+    account: authIndex,
+    provider,
+    status: 'active',
+    disabled: false,
+    unavailable: false,
+    runtimeOnly: false,
+    planType: 'pro',
+    bucket,
+    updatedAt: '',
+  },
+];
+
+describe('buildAnalyticsFilters bucket', () => {
+  const authMetaMap = new Map([meta('1', 'anon'), meta('2', 'anon'), meta('3', '')]);
+
+  it('expands a bucket into its auth indices', () => {
+    const filters = buildAnalyticsFilters({ bucket: 'anon' }, authMetaMap, []);
+    expect(filters.auth_indices).toEqual(['1', '2']);
+  });
+
+  it('expands the untagged sentinel', () => {
+    const filters = buildAnalyticsFilters({ bucket: UNTAGGED_BUCKET_FILTER }, authMetaMap, []);
+    expect(filters.auth_indices).toEqual(['3']);
+  });
+
+  it('yields the no-match sentinel for an empty bucket', () => {
+    const filters = buildAnalyticsFilters({ bucket: 'ghost' }, authMetaMap, []);
+    expect(filters.auth_indices).toEqual(['__no_matching_auth_index__']);
+  });
+
+  it('applies no constraint when unset', () => {
+    expect(buildAnalyticsFilters({}, authMetaMap, []).auth_indices).toBeUndefined();
+  });
+
+  it('matches bucket names case-sensitively, keeping Anon and anon as distinct pools', () => {
+    // CPA routes on an exact, case-sensitive comparison
+    // (sdk/cliproxy/auth/conductor_selection.go), so a case-insensitive match
+    // here would silently merge two pools CPA keeps separate.
+    const caseAuthMetaMap = new Map([meta('1', 'Anon'), meta('2', 'anon')]);
+    expect(buildAnalyticsFilters({ bucket: 'Anon' }, caseAuthMetaMap, []).auth_indices).toEqual([
+      '1',
+    ]);
+    expect(buildAnalyticsFilters({ bucket: 'anon' }, caseAuthMetaMap, []).auth_indices).toEqual([
+      '2',
+    ]);
+  });
+
+  // '1' and '2' are codex+anon, '3' is claude+anon (wrong provider), '4' is
+  // codex+untagged (wrong bucket) — shared by both tests below.
+  const combinedAuthMetaMap = new Map([
+    meta('1', 'anon'),
+    meta('2', 'anon'),
+    meta('3', 'anon', 'claude'),
+    meta('4', '', 'codex'),
+  ]);
+
+  it('intersects with an already-active account constraint instead of no-opping', () => {
+    // Pins the intersection semantics: the result is neither the
+    // provider-alone set (['1', '2', '4']) nor the bucket-alone set
+    // (['1', '2', '3']), only their true intersection. Note this case alone
+    // does NOT guard the addAuthIndexConstraint no-op-on-empty regression —
+    // bucket's own match list here is non-empty, so both the correct
+    // intersection and the buggy no-op-on-empty implementation happen to
+    // produce the same ['1', '2'] for this fixture. See the 'ghost' bucket
+    // case below for the test that actually discriminates the regression.
+    const filters = buildAnalyticsFilters(
+      { provider: 'codex', bucket: 'anon' },
+      combinedAuthMetaMap,
+      []
+    );
+
+    expect(filters.auth_indices).toEqual(['1', '2']);
+  });
+
+  it('collapses to the no-match sentinel when a matching bucket is combined with an empty-match one', () => {
+    // 'ghost' matches no accounts, so bucket's own list is empty here. This
+    // is the case that actually discriminates a regression to
+    // addAuthIndexConstraint for this branch: its `if (next.size === 0)
+    // return current` guard would fire and silently return the
+    // provider-alone set (['1', '2', '4']) instead of collapsing to the
+    // sentinel — i.e. the bucket constraint would be dropped rather than
+    // intersected.
+    const filters = buildAnalyticsFilters(
+      { provider: 'codex', bucket: 'ghost' },
+      combinedAuthMetaMap,
+      []
+    );
+
+    expect(filters.auth_indices).toEqual(['__no_matching_auth_index__']);
   });
 });

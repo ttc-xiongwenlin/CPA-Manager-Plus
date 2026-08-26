@@ -15,6 +15,7 @@ import type {
   MonitoringAnalyticsTimelinePoint,
 } from '@/services/api/usageService';
 import type { CredentialInfo } from '@/types/sourceInfo';
+import { UNTAGGED_BUCKET_FILTER } from '@/features/authFiles/bucketOptions';
 import {
   buildSourceInfoMap,
   resolveSourceDisplay,
@@ -101,6 +102,14 @@ const buildSourceKeysFromAnalyticsIdentity = (
 
 const normalizeFilterText = (value: string | null | undefined) =>
   readString(value).trim().toLowerCase();
+
+// Bucket names are matched case-sensitively against CPA's routing pools
+// (sdk/cliproxy/auth/conductor_selection.go compares them verbatim, and
+// internal/config/sdk_config.go only rejects empty/whitespace names), so
+// 'Anon' and 'anon' must stay distinct here — unlike normalizeFilterText
+// above, which every other dimension in this file intentionally uses
+// case-insensitively. Trim only; do not lowercase.
+const normalizeBucketFilterText = (value: string | null | undefined) => readString(value).trim();
 
 const ACCOUNT_FILTER_PREFIXES = {
   auth: 'auth:',
@@ -418,6 +427,26 @@ export const buildAnalyticsFilters = (
     if (channelAuthIndices.length === 0 && !filters.providers?.includes(channel)) {
       filters.providers = [...(filters.providers || []), channel];
     }
+  }
+  if (isActiveFilterValue(scopeFilters.bucket)) {
+    const bucket = scopeFilters.bucket!.trim();
+    const untagged = bucket === UNTAGGED_BUCKET_FILTER;
+    const bucketAuthIndices = Array.from(authMetaMap.entries())
+      .filter(([, authMeta]) => {
+        const value = normalizeBucketFilterText(authMeta.bucket);
+        return untagged ? value === '' : value === normalizeBucketFilterText(bucket);
+      })
+      .map(([authIndex]) => authIndex);
+    // Unlike addAuthIndexConstraint's other callers, an empty expansion here must
+    // constrain to an empty set (not no-op) — bucket has no separate backend
+    // dimension to fall back to, so auth_indices alone carries "no match".
+    const bucketAuthIndexSet = new Set(
+      bucketAuthIndices.map(normalizeAuthIndex).filter(Boolean) as string[]
+    );
+    authIndices =
+      authIndices === null
+        ? bucketAuthIndexSet
+        : new Set(Array.from(authIndices).filter((value) => bucketAuthIndexSet.has(value)));
   }
   if (authIndices) {
     filters.auth_indices =

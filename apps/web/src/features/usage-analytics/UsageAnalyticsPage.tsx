@@ -95,6 +95,10 @@ import {
   buildCredentialDetailCards,
   formatUsageDurationMs,
 } from './usageAnalyticsPresentation';
+import {
+  collectObservedBucketNames,
+  UNTAGGED_BUCKET_FILTER,
+} from '@/features/authFiles/bucketOptions';
 import styles from './UsageAnalyticsPage.module.scss';
 
 const trendMetricOptions: Array<{ value: UsageTrendMetricKey; labelKey: string }> = [
@@ -2330,6 +2334,7 @@ function UsageAnalyticsPageInner() {
   const allProviderOptionLabel = t('monitoring.filter_all_providers');
   const allStatusOptionLabel = t('monitoring.filter_all_statuses');
   const allAuthFileOptionLabel = t('usage_analytics.filter_all_auth_files');
+  const allBucketOptionLabel = t('usage_analytics.filter_all_buckets');
 
   const incomingOptionCache = useMemo<StableUsageOptionCache>(() => {
     const apiKeys = mergeSelectOptions([
@@ -2496,6 +2501,17 @@ function UsageAnalyticsPageInner() {
         usage.filters.authFile
       ),
     [allAuthFileOptionLabel, displayOptionCache.authFiles, usage.filters.authFile]
+  );
+  const bucketOptions = useMemo<SelectOption[]>(
+    () => [
+      { value: 'all', label: allBucketOptionLabel },
+      ...collectObservedBucketNames(usage.authFiles).map((bucket) => ({
+        value: bucket,
+        label: bucket,
+      })),
+      { value: UNTAGGED_BUCKET_FILTER, label: t('auth_files.bucket_filter_untagged') },
+    ],
+    [allBucketOptionLabel, t, usage.authFiles]
   );
   const statusOptions: SelectOption[] = [
     { value: 'all', label: allStatusOptionLabel },
@@ -2802,6 +2818,13 @@ function UsageAnalyticsPageInner() {
                 options={providerOptions}
                 onChange={(provider) => updateFilters({ provider })}
                 ariaLabel={t('usage_analytics.filter_provider')}
+                triggerClassName={styles.filterSelectTrigger}
+              />
+              <Select
+                value={usage.filters.bucket}
+                options={bucketOptions}
+                onChange={(bucket) => updateFilters({ bucket })}
+                ariaLabel={t('usage_analytics.filter_bucket')}
                 triggerClassName={styles.filterSelectTrigger}
               />
               <Select

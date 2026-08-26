@@ -41,6 +41,7 @@ const makeRow = (overrides: AccountRowOverrides = {}): AccountRow => {
     statusMessage: '',
     authIndex: '0',
     projectId: '',
+    bucket: '',
     priority: 0,
     createdAtMs: null,
     updatedAtMs: null,

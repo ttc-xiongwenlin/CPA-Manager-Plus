@@ -14,6 +14,8 @@ export interface AccountsWorkspaceUiState {
   statusFilter: AccountStatusFilter;
   planFilter: string;
   quotaBandFilter: AccountQuotaBand;
+  /** 'all', a configured codex bucket name, or UNTAGGED_BUCKET_FILTER. */
+  bucketFilter: string;
   operationalFilter: AccountOperationalFilter;
   accountSort: AccountRowSort;
   pageSize: number;
@@ -44,6 +46,7 @@ export const DEFAULT_ACCOUNTS_WORKSPACE_UI_STATE: AccountsWorkspaceUiState = {
   statusFilter: 'all',
   planFilter: 'all',
   quotaBandFilter: 'all',
+  bucketFilter: 'all',
   operationalFilter: 'all',
   accountSort: { key: 'recent', direction: 'desc' },
   pageSize: 10,
@@ -78,6 +81,10 @@ export const normalizeAccountsWorkspaceUiState = (value: unknown): AccountsWorks
     quotaBandFilter: QUOTA_BANDS.has(String(value.quotaBandFilter))
       ? (String(value.quotaBandFilter) as AccountQuotaBand)
       : 'all',
+    bucketFilter:
+      typeof value.bucketFilter === 'string' && value.bucketFilter.trim()
+        ? value.bucketFilter
+        : 'all',
     operationalFilter: OPERATIONAL_FILTERS.has(String(value.operationalFilter))
       ? (String(value.operationalFilter) as AccountOperationalFilter)
       : 'all',

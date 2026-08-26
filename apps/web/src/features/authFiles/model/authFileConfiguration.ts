@@ -32,6 +32,7 @@ export type AuthFileConfigurationDraft = {
   priority: string;
   weight: string;
   note: string;
+  bucket: string;
   headersText: string;
   excludedModelsText: string;
   disableCooling: CoolingPolicy;
@@ -65,6 +66,7 @@ export type AuthFileConfigurationCapabilities = {
   websockets: boolean;
   xaiRouting: boolean;
   claudeCloak: boolean;
+  codexBucket: boolean;
 };
 
 export type ParsedAuthFileConfigurationSource = {
@@ -273,6 +275,7 @@ export const getAuthFileConfigurationCapabilities = (
     websockets: providerKey === 'codex' || providerKey === 'xai',
     xaiRouting: providerKey === 'xai',
     claudeCloak: providerKey === 'claude',
+    codexBucket: providerKey === 'codex',
   };
 };
 
@@ -345,6 +348,7 @@ export const buildAuthFileConfigurationDraft = (
     priority: readPriorityText(record.priority),
     weight: readIntegerText(record.weight),
     note: readTrimmedString(record.note),
+    bucket: readTrimmedString(record.bucket),
     headersText: Object.keys(headers).length > 0 ? JSON.stringify(headers, null, 2) : '',
     excludedModelsText: excludedModels.join('\n'),
     disableCooling: coolingPolicyFromOverride(readCredentialCoolingOverride(record)),
@@ -465,6 +469,10 @@ export const buildAuthFileConfigurationPatch = (
   const originalNote = originalDraft.note.trim();
   const nextNote = draft.note.trim();
   if (nextNote !== originalNote) patch.note = nextNote;
+
+  const originalBucket = originalDraft.bucket.trim();
+  const nextBucket = draft.bucket.trim();
+  if (nextBucket !== originalBucket) patch.bucket = nextBucket;
 
   if (draft.headersText !== originalDraft.headersText) {
     const parsed = parseHeadersText(draft.headersText);

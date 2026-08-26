@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { MonitoringAnalyticsResponse } from '@/services/api/usageService';
 import { buildSourceInfoMap } from '@/utils/sourceResolver';
+import type { MonitoringAuthMeta } from '@/features/monitoring/model/types';
+import { UNTAGGED_BUCKET_FILTER } from '@/features/authFiles/bucketOptions';
 import type { UsageRankRow } from './usageAnalyticsModel';
 import {
   analyzeUsageBucket,
@@ -72,13 +74,16 @@ describe('usage analytics request model', () => {
 
   it('maps model, API key, and status filters to analytics request fields', () => {
     expect(
-      buildUsageAnalyticsFilters({
-        model: 'gpt-4o',
-        apiKeyHash: ' ABCDEF1234 ',
-        status: 'success',
-        minLatencyMs: '10000',
-        cacheStatus: 'hit',
-      })
+      buildUsageAnalyticsFilters(
+        {
+          model: 'gpt-4o',
+          apiKeyHash: ' ABCDEF1234 ',
+          status: 'success',
+          minLatencyMs: '10000',
+          cacheStatus: 'hit',
+        },
+        new Map()
+      )
     ).toEqual({
       models: ['gpt-4o'],
       api_key_hashes: ['abcdef1234'],
@@ -87,11 +92,14 @@ describe('usage analytics request model', () => {
       cache_status: 'hit',
     });
     expect(
-      buildUsageAnalyticsFilters({
-        model: 'all',
-        apiKeyHash: 'all',
-        status: 'failed',
-      })
+      buildUsageAnalyticsFilters(
+        {
+          model: 'all',
+          apiKeyHash: 'all',
+          status: 'failed',
+        },
+        new Map()
+      )
     ).toEqual({
       failed_only: true,
     });
@@ -1575,5 +1583,59 @@ describe('usage anomaly drilldown', () => {
     ).toBe(
       `/monitoring?from_ms=${NOW_MS}&to_ms=${NOW_MS + HOUR_MS}&model=gpt-4o&api_key_hash=abcdef1234&provider=openai&auth_file=codex-auth.json&project_id=project-1&request_type=codex&status=failed&search=req-42&min_latency_ms=10000&cache_status=hit`
     );
+  });
+});
+
+const meta = (authIndex: string, bucket: string): [string, MonitoringAuthMeta] => [
+  authIndex,
+  {
+    authIndex,
+    label: authIndex,
+    account: authIndex,
+    provider: 'codex',
+    status: 'active',
+    disabled: false,
+    unavailable: false,
+    runtimeOnly: false,
+    planType: 'pro',
+    bucket,
+    updatedAt: '',
+  },
+];
+
+describe('usage analytics bucket filter', () => {
+  const authMetaMap = new Map([meta('1', 'anon'), meta('2', '')]);
+
+  it('expands a bucket into auth indices', () => {
+    const payload = buildUsageAnalyticsFilters({ bucket: 'anon' }, authMetaMap);
+    expect(payload.auth_indices).toEqual(['1']);
+  });
+
+  it('expands the untagged sentinel into accounts with no bucket tag', () => {
+    const payload = buildUsageAnalyticsFilters({ bucket: UNTAGGED_BUCKET_FILTER }, authMetaMap);
+    expect(payload.auth_indices).toEqual(['2']);
+  });
+
+  it('yields the no-match sentinel for a bucket with zero accounts', () => {
+    const payload = buildUsageAnalyticsFilters({ bucket: 'ghost' }, authMetaMap);
+    expect(payload.auth_indices).toEqual(['__no_matching_auth_index__']);
+  });
+
+  it('matches bucket names case-sensitively, keeping Anon and anon as distinct pools', () => {
+    // CPA routes on an exact, case-sensitive comparison
+    // (sdk/cliproxy/auth/conductor_selection.go); this builder used to
+    // lowercase both sides, which would merge two pools CPA keeps separate.
+    const caseAuthMetaMap = new Map([meta('1', 'Anon'), meta('2', 'anon')]);
+    expect(buildUsageAnalyticsFilters({ bucket: 'Anon' }, caseAuthMetaMap).auth_indices).toEqual([
+      '1',
+    ]);
+    expect(buildUsageAnalyticsFilters({ bucket: 'anon' }, caseAuthMetaMap).auth_indices).toEqual([
+      '2',
+    ]);
+  });
+
+  it('carries bucket into the drill-down url', () => {
+    const url = buildMonitoringDetailUrl({ bucketMs: 0, bucketEndMs: 1000 }, { bucket: 'anon' });
+    expect(url).toContain('bucket=anon');
   });
 });

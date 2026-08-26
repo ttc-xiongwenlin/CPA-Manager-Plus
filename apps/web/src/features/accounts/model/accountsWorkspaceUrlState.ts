@@ -54,6 +54,7 @@ const MANAGED_QUERY_KEYS = [
   'status',
   'plan',
   'quota',
+  'bucket',
   'operation',
   'sort',
   'direction',
@@ -101,6 +102,8 @@ export const readAccountsWorkspaceUrlState = (
     statusFilter: readEnum(params, 'status', STATUS_FILTER_SET, fallback.statusFilter),
     planFilter: readNonEmpty(params, 'plan', fallback.planFilter),
     quotaBandFilter: readEnum(params, 'quota', QUOTA_BAND_SET, fallback.quotaBandFilter),
+    // Free-form rather than enum-backed: bucket names come from CPA's config.yaml.
+    bucketFilter: readNonEmpty(params, 'bucket', fallback.bucketFilter),
     operationalFilter: readEnum(
       params,
       'operation',
@@ -157,6 +160,7 @@ export const writeAccountsWorkspaceUrlSearch = (
   setNonDefault(params, 'status', state.statusFilter, defaults.statusFilter);
   setNonDefault(params, 'plan', state.planFilter, defaults.planFilter);
   setNonDefault(params, 'quota', state.quotaBandFilter, defaults.quotaBandFilter);
+  setNonDefault(params, 'bucket', state.bucketFilter, defaults.bucketFilter);
   setNonDefault(params, 'operation', state.operationalFilter, defaults.operationalFilter);
   if (state.accountSort.key !== defaults.accountSort.key) {
     params.set('sort', state.accountSort.key);

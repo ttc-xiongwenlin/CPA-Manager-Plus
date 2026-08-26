@@ -751,6 +751,9 @@ vi.mock('@/features/oauth/CodexReauthDialog', () => ({
 }));
 
 vi.mock('@/services/api', () => ({
+  configFileApi: {
+    fetchConfigYaml: vi.fn(async () => ''),
+  },
   accountQuotaSnapshotApi: {
     write: vi.fn(async (_base, _managementKey, entries: unknown[]) => ({
       observed_at_ms: Date.now(),
@@ -3537,6 +3540,62 @@ describe('AccountsPage replacement flows', () => {
         'data-account-card': getAuthFileSelectionKey(mocks.files[1]),
       })
     ).toHaveLength(1);
+  });
+
+  it('filters accounts by codex bucket, including the untagged reservation', async () => {
+    mocks.files = [
+      { ...makeCodexFile('a.json', 'auth-a', 'a@example.com'), bucket: 'team-a' } as AuthFileItem,
+      { ...makeCodexFile('b.json', 'auth-b', 'b@example.com'), bucket: 'team-b' } as AuthFileItem,
+      makeCodexFile('c.json', 'auth-c', 'c@example.com'),
+    ];
+
+    const renderer = await renderAccountsPage();
+    const bucketSelect = renderer.root
+      .findAllByType(Select)
+      .find((node) => node.props.ariaLabel === 'auth_files.bucket_filter_label');
+    if (!bucketSelect) throw new Error('Accounts bucket filter not found');
+
+    expect(bucketSelect.props.options).toEqual([
+      { value: 'all', label: 'auth_files.bucket_filter_all' },
+      { value: 'team-a', label: 'team-a' },
+      { value: 'team-b', label: 'team-b' },
+      { value: '__untagged__', label: 'auth_files.bucket_filter_untagged' },
+    ]);
+
+    const cardCount = (index: number) =>
+      renderer.root.findAllByProps({
+        'data-account-card': getAuthFileSelectionKey(mocks.files[index]),
+      }).length;
+
+    await act(async () => {
+      bucketSelect.props.onChange('team-a');
+      await Promise.resolve();
+    });
+    expect([cardCount(0), cardCount(1), cardCount(2)]).toEqual([1, 0, 0]);
+
+    await act(async () => {
+      bucketSelect.props.onChange('__untagged__');
+      await Promise.resolve();
+    });
+    expect([cardCount(0), cardCount(1), cardCount(2)]).toEqual([0, 0, 1]);
+
+    await act(async () => {
+      bucketSelect.props.onChange('all');
+      await Promise.resolve();
+    });
+    expect([cardCount(0), cardCount(1), cardCount(2)]).toEqual([1, 1, 1]);
+  });
+
+  it('hides the bucket filter when no account carries a bucket tag', async () => {
+    mocks.files = [makeCodexFile('a.json', 'auth-a', 'a@example.com')];
+
+    const renderer = await renderAccountsPage();
+
+    expect(
+      renderer.root
+        .findAllByType(Select)
+        .some((node) => node.props.ariaLabel === 'auth_files.bucket_filter_label')
+    ).toBe(false);
   });
 
   it('updates the accounts view query when switching views', async () => {

@@ -82,7 +82,9 @@ import {
   buildAuthFilesByAuthIndex,
   buildAccountQuotaRefreshFailureEntry,
   buildObservedCodexAccountQuotaEntry,
+  buildBucketOptionsFromValues,
   buildChannelOptionsFromValues,
+  buildMonitoringInitialDrilldownFilters,
   buildMonitoringInitialStateFromQuery,
   buildModelOptionsFromValues,
   buildPaginationState,
@@ -94,6 +96,7 @@ import {
   formatAccountOverviewScopeText,
   getCurrentInputValue,
   getTodayStartInputValue,
+  hasActiveMonitoringScopeFilter,
   isUsageImportFile,
   mergeObservedAccountQuotaState,
   parseDateTimeLocalValue,
@@ -103,6 +106,7 @@ import {
   type StatusFilter,
 } from '@/features/monitoring/model/monitoringCenterPageModel';
 import { resolveMonitoringDimensionCounts } from '@/features/monitoring/model/monitoringAnalyticsModel';
+import { collectObservedBucketNames } from '@/features/authFiles/bucketOptions';
 import { useUsageData } from '@/features/monitoring/hooks/useUsageData';
 import { useHeaderSnapshotsLoader } from '@/features/monitoring/hooks/useHeaderSnapshotsLoader';
 import {
@@ -196,18 +200,7 @@ export function MonitoringCenterPage() {
     buildMonitoringInitialStateFromQuery(location.search, readMonitoringCenterUiState())
   );
   const initialMonitoringDrilldownFilters = useRef(
-    (() => {
-      const params = new URLSearchParams(location.search);
-      const minLatencyMs = Number(params.get('min_latency_ms'));
-      return {
-        authFile: params.get('auth_file')?.trim() || '',
-        authIndex: params.get('auth_index')?.trim() || '',
-        projectId: params.get('project_id')?.trim() || '',
-        requestType: params.get('request_type')?.trim() || '',
-        minLatencyMs: Number.isFinite(minLatencyMs) && minLatencyMs > 0 ? minLatencyMs : undefined,
-        cacheStatus: params.get('cache_status')?.trim() || '',
-      };
-    })()
+    buildMonitoringInitialDrilldownFilters(location.search)
   );
   const [timeRange, setTimeRange] = useState<MonitoringTimeRange>(
     initialMonitoringCenterUiState.current.timeRange
@@ -273,6 +266,9 @@ export function MonitoringCenterPage() {
   );
   const [drilldownCacheStatus, setDrilldownCacheStatus] = useState(
     () => initialMonitoringDrilldownFilters.current.cacheStatus
+  );
+  const [drilldownBucket, setDrilldownBucket] = useState(
+    () => initialMonitoringDrilldownFilters.current.bucket
   );
   const [expandedAccounts, setExpandedAccounts] = useState<Record<string, boolean>>({});
   const [expandedApiKeys, setExpandedApiKeys] = useState<Record<string, boolean>>({});
@@ -421,6 +417,7 @@ export function MonitoringCenterPage() {
       cacheStatus: drilldownCacheStatus || undefined,
       model: selectedModel,
       channel: selectedChannel,
+      bucket: drilldownBucket || undefined,
       apiKeyHash: selectedApiKeyHash,
       headerTraceId: selectedHeaderTraceId,
       status: selectedStatus,
@@ -428,6 +425,7 @@ export function MonitoringCenterPage() {
     [
       drilldownAuthFile,
       drilldownAuthIndex,
+      drilldownBucket,
       drilldownCacheStatus,
       drilldownMinLatencyMs,
       drilldownProjectId,
@@ -807,6 +805,11 @@ export function MonitoringCenterPage() {
     [monitoringFilterOptions.channels, selectedChannel, t]
   );
 
+  const bucketOptions = useMemo(
+    () => buildBucketOptionsFromValues(collectObservedBucketNames(authFiles), drilldownBucket, t),
+    [authFiles, drilldownBucket, t]
+  );
+
   const apiKeyOptions = useMemo(
     () => buildApiKeyOptionsFromRows(monitoringFilterOptions.apiKeyRows, selectedApiKeyHash, t),
     [monitoringFilterOptions.apiKeyRows, selectedApiKeyHash, t]
@@ -1008,19 +1011,21 @@ export function MonitoringCenterPage() {
   }, [accountQuotaStatesByRowId, accountQuotaTargetsByRowId, headerSnapshotLookup, t]);
 
   const hasSearchFilter = Boolean(deferredSearch.trim());
-  const hasScopeFilter =
-    selectedAccount !== 'all' ||
-    selectedProvider !== 'all' ||
-    selectedModel !== 'all' ||
-    selectedChannel !== 'all' ||
-    selectedApiKeyHash !== 'all' ||
-    selectedHeaderTraceId !== 'all' ||
-    selectedStatus !== 'all' ||
-    Boolean(drilldownAuthFile) ||
-    Boolean(drilldownProjectId) ||
-    Boolean(drilldownRequestType) ||
-    Boolean(drilldownMinLatencyMs) ||
-    Boolean(drilldownCacheStatus);
+  const hasScopeFilter = hasActiveMonitoringScopeFilter({
+    account: selectedAccount,
+    provider: selectedProvider,
+    model: selectedModel,
+    channel: selectedChannel,
+    bucket: drilldownBucket,
+    apiKeyHash: selectedApiKeyHash,
+    headerTraceId: selectedHeaderTraceId,
+    status: selectedStatus,
+    authFile: drilldownAuthFile,
+    projectId: drilldownProjectId,
+    requestType: drilldownRequestType,
+    minLatencyMs: drilldownMinLatencyMs,
+    cacheStatus: drilldownCacheStatus,
+  });
   const hasActiveDataFilter = hasSearchFilter || hasScopeFilter;
   const failedGroupCount = groupedRealtimeRows.filter((row) => row.failureCalls > 0).length;
   const failedOnlyActive = selectedStatus === 'failed';
@@ -1149,6 +1154,7 @@ export function MonitoringCenterPage() {
     setDrilldownRequestType('');
     setDrilldownMinLatencyMs(undefined);
     setDrilldownCacheStatus('');
+    setDrilldownBucket('all');
   }, []);
 
   const renderMonitoringEmptyState = () => (
@@ -1904,6 +1910,7 @@ export function MonitoringCenterPage() {
         selectedProvider={selectedProvider}
         selectedModel={selectedModel}
         selectedChannel={selectedChannel}
+        selectedBucket={drilldownBucket}
         selectedApiKeyHash={selectedApiKeyHash}
         selectedStatus={selectedStatus}
         searchInput={searchInput}
@@ -1911,6 +1918,7 @@ export function MonitoringCenterPage() {
         providerOptions={providerOptions}
         modelOptions={modelOptions}
         channelOptions={channelOptions}
+        bucketOptions={bucketOptions}
         apiKeyOptions={apiKeyOptions}
         statusOptions={statusOptions}
         combinedError={combinedError}
@@ -1924,6 +1932,7 @@ export function MonitoringCenterPage() {
         onProviderChange={setSelectedProvider}
         onModelChange={setSelectedModel}
         onChannelChange={setSelectedChannel}
+        onBucketChange={setDrilldownBucket}
         onApiKeyChange={setSelectedApiKeyHash}
         onStatusChange={(value) => setSelectedStatus(value as StatusFilter)}
         onSearchChange={setSearchInput}

@@ -22,6 +22,7 @@ import {
 } from '@/features/monitoring/model/apiKeys';
 import { buildMonitoringSourceDisplay } from '@/features/monitoring/model/sourceDisplay';
 import type { MonitoringAuthMeta, MonitoringChannelMeta } from '@/features/monitoring/model/types';
+import { UNTAGGED_BUCKET_FILTER } from '@/features/authFiles/bucketOptions';
 import type { CredentialInfo } from '@/types/sourceInfo';
 import { buildSourceInfoMap } from '@/utils/sourceResolver';
 import {
@@ -73,6 +74,7 @@ export type UsageAnalyticsFiltersState = {
   apiKeyHash: string;
   provider: string;
   authFile: string;
+  bucket: string;
   status: UsageAnalyticsStatus;
   searchQuery: string;
   minLatencyMs: UsageAnalyticsLatencyFilter;
@@ -479,6 +481,7 @@ export const USAGE_ANALYTICS_DEFAULT_FILTERS: UsageAnalyticsFiltersState = {
   apiKeyHash: 'all',
   provider: 'all',
   authFile: 'all',
+  bucket: 'all',
   status: 'all',
   searchQuery: '',
   minLatencyMs: 'all',
@@ -700,9 +703,17 @@ export const buildUsageAnalyticsFilters = (
   filters: Partial<
     Pick<
       UsageAnalyticsFiltersState,
-      'model' | 'apiKeyHash' | 'provider' | 'authFile' | 'status' | 'minLatencyMs' | 'cacheStatus'
+      | 'model'
+      | 'apiKeyHash'
+      | 'provider'
+      | 'authFile'
+      | 'status'
+      | 'minLatencyMs'
+      | 'cacheStatus'
+      | 'bucket'
     >
-  >
+  >,
+  authMetaMap: Map<string, MonitoringAuthMeta>
 ): MonitoringAnalyticsFilters => {
   const payload: MonitoringAnalyticsFilters = {};
   const model = filters.model ?? 'all';
@@ -733,6 +744,21 @@ export const buildUsageAnalyticsFilters = (
   const cacheStatus = filters.cacheStatus ?? 'all';
   if (cacheStatus !== 'all') {
     payload.cache_status = cacheStatus;
+  }
+  const bucket = filters.bucket ?? 'all';
+  if (isActiveSelectValue(bucket)) {
+    const trimmed = bucket.trim();
+    const untagged = trimmed === UNTAGGED_BUCKET_FILTER;
+    // Case-sensitive, matching CPA's routing pools (conductor_selection.go
+    // compares bucket names verbatim) — 'Anon' and 'anon' are distinct pools.
+    const bucketAuthIndices = Array.from(authMetaMap.entries())
+      .filter(([, authMeta]) => {
+        const value = (authMeta.bucket || '').trim();
+        return untagged ? value === '' : value === trimmed;
+      })
+      .map(([authIndex]) => authIndex);
+    payload.auth_indices =
+      bucketAuthIndices.length > 0 ? bucketAuthIndices.sort() : ['__no_matching_auth_index__'];
   }
   return payload;
 };
@@ -2610,6 +2636,7 @@ export const buildMonitoringDetailUrl = (
       | 'apiKeyHash'
       | 'provider'
       | 'authFile'
+      | 'bucket'
       | 'status'
       | 'searchQuery'
       | 'minLatencyMs'
@@ -2641,6 +2668,9 @@ export const buildMonitoringDetailUrl = (
   }
   if (isActiveSelectValue(authFile)) {
     params.set('auth_file', authFile.trim());
+  }
+  if (isActiveSelectValue(filters.bucket)) {
+    params.set('bucket', filters.bucket!.trim());
   }
   if (isActiveSelectValue(filters.projectId)) {
     params.set('project_id', filters.projectId!.trim());

@@ -234,7 +234,10 @@ export function useUsageAnalytics() {
     () => resolveUsageGranularity(filters, nowMs),
     [filters, nowMs]
   );
-  const analyticsFilters = useMemo(() => buildUsageAnalyticsFilters(filters), [filters]);
+  const analyticsFilters = useMemo(
+    () => buildUsageAnalyticsFilters(filters, authMetaMap),
+    [authMetaMap, filters]
+  );
 
   useEffect(() => {
     const nextState = { activeTab: activeTabState, filters };
@@ -494,9 +497,12 @@ export function useUsageAnalytics() {
   const selectedApiKeyTimelineFilters = useMemo(
     () =>
       selectedApiKeyFilterHash
-        ? buildUsageAnalyticsFilters({ ...filters, apiKeyHash: selectedApiKeyFilterHash })
+        ? buildUsageAnalyticsFilters(
+            { ...filters, apiKeyHash: selectedApiKeyFilterHash },
+            authMetaMap
+          )
         : {},
-    [filters, selectedApiKeyFilterHash]
+    [authMetaMap, filters, selectedApiKeyFilterHash]
   );
   const selectedApiKeyTimelineInclude = useMemo(
     () => ({
@@ -801,6 +807,7 @@ export function useUsageAnalytics() {
     anomalyPoints: adapted.anomalyPoints,
     drilldownPreview: adapted.drilldownPreview,
     filterOptions: filterSelectorsData?.filter_options ?? adapted.filterOptions,
+    authFiles: monitoringMeta.authFiles,
     selectedBucket,
     selectBucket,
     anomalyAnalysis,

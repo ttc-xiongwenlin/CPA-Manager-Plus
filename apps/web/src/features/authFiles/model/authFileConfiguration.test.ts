@@ -27,21 +27,25 @@ describe('authFileConfiguration provider capabilities', () => {
       websockets: true,
       xaiRouting: false,
       claudeCloak: false,
+      codexBucket: true,
     });
     expect(getAuthFileConfigurationCapabilities('grok')).toEqual({
       websockets: true,
       xaiRouting: true,
       claudeCloak: false,
+      codexBucket: false,
     });
     expect(getAuthFileConfigurationCapabilities('claude')).toEqual({
       websockets: false,
       xaiRouting: false,
       claudeCloak: true,
+      codexBucket: false,
     });
     expect(getAuthFileConfigurationCapabilities('gemini')).toEqual({
       websockets: false,
       xaiRouting: false,
       claudeCloak: false,
+      codexBucket: false,
     });
   });
 });
@@ -489,5 +493,42 @@ describe('buildRedactedAuthFileConfigurationText', () => {
         note: 'keep this non-URL value?yes',
       },
     });
+  });
+});
+
+describe('authFileConfiguration codex bucket', () => {
+  it('exposes the bucket field only for codex accounts', () => {
+    expect(getAuthFileConfigurationCapabilities('codex').codexBucket).toBe(true);
+    expect(getAuthFileConfigurationCapabilities('claude').codexBucket).toBe(false);
+    expect(getAuthFileConfigurationCapabilities('xai').codexBucket).toBe(false);
+  });
+
+  it('reads the stored bucket tag into the draft', () => {
+    expect(buildAuthFileConfigurationDraft({ type: 'codex', bucket: '  team-a  ' }, 'codex').bucket).toBe(
+      'team-a'
+    );
+    expect(buildAuthFileConfigurationDraft({ type: 'codex' }, 'codex').bucket).toBe('');
+  });
+
+  it('patches the bucket tag only when it changed', () => {
+    const record = { type: 'codex', bucket: 'team-a' };
+    const original = buildAuthFileConfigurationDraft(record, 'codex');
+
+    expect(
+      buildAuthFileConfigurationPatch(record, 'codex', original, { ...original }).patch
+    ).toEqual({});
+    expect(
+      buildAuthFileConfigurationPatch(record, 'codex', original, { ...original, bucket: 'team-b' })
+        .patch
+    ).toEqual({ bucket: 'team-b' });
+  });
+
+  it('clears the bucket tag with an empty patch value rather than dropping the key', () => {
+    const record = { type: 'codex', bucket: 'team-a' };
+    const original = buildAuthFileConfigurationDraft(record, 'codex');
+
+    expect(
+      buildAuthFileConfigurationPatch(record, 'codex', original, { ...original, bucket: '' }).patch
+    ).toEqual({ bucket: '' });
   });
 });

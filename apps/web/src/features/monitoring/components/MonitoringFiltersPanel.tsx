@@ -13,6 +13,7 @@ type MonitoringFiltersPanelProps = {
   selectedProvider: string;
   selectedModel: string;
   selectedChannel: string;
+  selectedBucket: string;
   selectedApiKeyHash: string;
   selectedStatus: string;
   searchInput: string;
@@ -20,6 +21,7 @@ type MonitoringFiltersPanelProps = {
   providerOptions: ReadonlyArray<SelectOption>;
   modelOptions: ReadonlyArray<SelectOption>;
   channelOptions: ReadonlyArray<SelectOption>;
+  bucketOptions: ReadonlyArray<SelectOption>;
   apiKeyOptions: ReadonlyArray<SelectOption>;
   statusOptions: ReadonlyArray<SelectOption>;
   combinedError: string | null;
@@ -33,6 +35,7 @@ type MonitoringFiltersPanelProps = {
   onProviderChange: (value: string) => void;
   onModelChange: (value: string) => void;
   onChannelChange: (value: string) => void;
+  onBucketChange: (value: string) => void;
   onApiKeyChange: (value: string) => void;
   onStatusChange: (value: string) => void;
   onSearchChange: (value: string) => void;
@@ -70,6 +73,7 @@ export function MonitoringFiltersPanel({
   selectedProvider,
   selectedModel,
   selectedChannel,
+  selectedBucket,
   selectedApiKeyHash,
   selectedStatus,
   searchInput,
@@ -77,6 +81,7 @@ export function MonitoringFiltersPanel({
   providerOptions,
   modelOptions,
   channelOptions,
+  bucketOptions,
   apiKeyOptions,
   statusOptions,
   combinedError,
@@ -90,6 +95,7 @@ export function MonitoringFiltersPanel({
   onProviderChange,
   onModelChange,
   onChannelChange,
+  onBucketChange,
   onApiKeyChange,
   onStatusChange,
   onSearchChange,
@@ -209,6 +215,13 @@ export function MonitoringFiltersPanel({
             options={channelOptions}
             onChange={onChannelChange}
             ariaLabel={t('monitoring.filter_channel')}
+            triggerClassName={styles.filterSelectTrigger}
+          />
+          <Select
+            value={selectedBucket}
+            options={bucketOptions}
+            onChange={onBucketChange}
+            ariaLabel={t('monitoring.filter_bucket')}
             triggerClassName={styles.filterSelectTrigger}
           />
           <Select

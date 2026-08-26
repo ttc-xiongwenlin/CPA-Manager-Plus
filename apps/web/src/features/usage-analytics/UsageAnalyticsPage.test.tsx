@@ -458,6 +458,7 @@ const createUsageState = (overrides: Record<string, unknown> = {}) => {
       providers: ['openai'],
       auth_files: ['auth.json'],
     },
+    authFiles: [],
     selectedBucket: point,
     selectBucket: vi.fn(),
     anomalyAnalysis: {

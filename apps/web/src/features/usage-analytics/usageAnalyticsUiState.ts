@@ -115,6 +115,7 @@ export const normalizeUsageAnalyticsFilters = (value: unknown): UsageAnalyticsFi
     apiKeyHash: normalizeSelectValue(record.apiKeyHash),
     provider: normalizeSelectValue(record.provider),
     authFile: normalizeSelectValue(record.authFile),
+    bucket: normalizeSelectValue(record.bucket),
     status: normalizeStatus(record.status),
     searchQuery: normalizeInputValue(record.searchQuery),
     minLatencyMs: normalizeLatency(record.minLatencyMs),
@@ -166,6 +167,7 @@ const queryHasAnyFilter = (params: URLSearchParams) =>
     'api_key_hash',
     'provider',
     'auth_file',
+    'bucket',
     'status',
     'search',
     'min_latency_ms',
@@ -206,6 +208,7 @@ export const buildUsageAnalyticsUiStateFromSearchParams = (
   if (params.has('api_key_hash')) record.apiKeyHash = params.get('api_key_hash');
   if (params.has('provider')) record.provider = params.get('provider');
   if (params.has('auth_file')) record.authFile = params.get('auth_file');
+  if (params.has('bucket')) record.bucket = params.get('bucket');
   if (params.has('status')) record.status = params.get('status');
   if (params.has('search')) record.searchQuery = params.get('search') ?? '';
   if (params.has('min_latency_ms')) record.minLatencyMs = params.get('min_latency_ms');
@@ -251,6 +254,7 @@ export const buildUsageAnalyticsSearchParams = (state: UsageAnalyticsUiState) =>
   setNonDefaultParam(params, 'api_key_hash', filters.apiKeyHash, defaults.apiKeyHash);
   setNonDefaultParam(params, 'provider', filters.provider, defaults.provider);
   setNonDefaultParam(params, 'auth_file', filters.authFile, defaults.authFile);
+  setNonDefaultParam(params, 'bucket', filters.bucket, defaults.bucket);
   if (filters.status !== defaults.status) params.set('status', filters.status);
   setNonDefaultParam(params, 'search', filters.searchQuery, defaults.searchQuery);
   if (filters.minLatencyMs !== defaults.minLatencyMs) {

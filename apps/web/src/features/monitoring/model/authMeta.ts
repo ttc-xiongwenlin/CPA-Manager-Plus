@@ -82,6 +82,7 @@ const normalizeAuthMeta = (entry: AuthFileItem): MonitoringAuthMeta | null => {
     unavailable: parseBoolean(entry.unavailable),
     runtimeOnly: parseBoolean(entry.runtime_only ?? entry.runtimeOnly),
     planType: planType || '-',
+    bucket: readString(entry.bucket),
     updatedAt: readAuthTimestamp(entry),
   };
 };

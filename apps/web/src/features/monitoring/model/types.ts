@@ -25,6 +25,7 @@ export type MonitoringAuthMeta = {
   unavailable: boolean;
   runtimeOnly: boolean;
   planType: string;
+  bucket: string;
   updatedAt: string;
 };
 
@@ -368,6 +369,7 @@ export interface MonitoringScopeFilters {
   requestType?: string;
   model?: string;
   channel?: string;
+  bucket?: string;
   apiKeyHash?: string;
   status?: 'all' | 'success' | 'failed';
   minLatencyMs?: number;

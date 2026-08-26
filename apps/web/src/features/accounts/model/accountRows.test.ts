@@ -20,6 +20,7 @@ import {
   type AccountInspectionResult,
   type AccountQuotaStores,
 } from './accountRows';
+import { UNTAGGED_BUCKET_FILTER } from '@/features/authFiles/bucketOptions';
 import {
   buildQuotaCredentialIdentity,
   getQuotaCredentialStoreKey,
@@ -2725,5 +2726,83 @@ describe('accountRows', () => {
       source: 'cache',
       observedAtMs: 1_700_000_000_000,
     });
+  });
+});
+
+describe('codex bucket rows and filtering', () => {
+  const bucketBaseFilters = {
+    provider: 'all',
+    status: 'all' as const,
+    plan: 'all',
+    quotaBand: 'all' as const,
+    search: '',
+  };
+
+  it('carries the bucket tag onto the row', () => {
+    const [tagged, untagged] = buildAccountRows(
+      [
+        { name: 'a.json', type: 'codex', authIndex: 'auth-1', bucket: '  team-a  ' },
+        { name: 'b.json', type: 'codex', authIndex: 'auth-2' },
+      ],
+      emptyStores()
+    );
+
+    expect(tagged.bucket).toBe('team-a');
+    expect(untagged.bucket).toBe('');
+  });
+
+  it('filters rows by bucket, including the untagged reservation', () => {
+    const rows = buildAccountRows(
+      [
+        { name: 'a.json', type: 'codex', authIndex: 'auth-1', bucket: 'team-a' },
+        { name: 'b.json', type: 'codex', authIndex: 'auth-2', bucket: 'team-b' },
+        { name: 'c.json', type: 'codex', authIndex: 'auth-3' },
+        { name: 'd.json', type: 'claude', authIndex: 'auth-4' },
+      ],
+      emptyStores()
+    );
+
+    expect(filterAccountRows(rows, { ...bucketBaseFilters, bucket: 'all' })).toHaveLength(4);
+    expect(
+      filterAccountRows(rows, { ...bucketBaseFilters, bucket: 'team-a' }).map((row) => row.fileName)
+    ).toEqual(['a.json']);
+    expect(
+      filterAccountRows(rows, { ...bucketBaseFilters, bucket: UNTAGGED_BUCKET_FILTER }).map(
+        (row) => row.fileName
+      )
+    ).toEqual(['c.json', 'd.json']);
+  });
+
+  it('matches bucket names case-sensitively, the way CPA resolves them', () => {
+    const rows = buildAccountRows(
+      [{ name: 'a.json', type: 'codex', authIndex: 'auth-1', bucket: 'Team-A' }],
+      emptyStores()
+    );
+
+    expect(filterAccountRows(rows, { ...bucketBaseFilters, bucket: 'team-a' })).toHaveLength(0);
+    expect(filterAccountRows(rows, { ...bucketBaseFilters, bucket: 'Team-A' })).toHaveLength(1);
+  });
+
+  it('treats an absent bucket filter as unfiltered', () => {
+    const rows = buildAccountRows(
+      [{ name: 'a.json', type: 'codex', authIndex: 'auth-1', bucket: 'team-a' }],
+      emptyStores()
+    );
+
+    expect(filterAccountRows(rows, bucketBaseFilters)).toHaveLength(1);
+  });
+
+  it('finds an account by its bucket through search', () => {
+    const rows = buildAccountRows(
+      [
+        { name: 'a.json', type: 'codex', authIndex: 'auth-1', bucket: 'team-a' },
+        { name: 'b.json', type: 'codex', authIndex: 'auth-2', bucket: 'team-b' },
+      ],
+      emptyStores()
+    );
+
+    expect(
+      filterAccountRows(rows, { ...bucketBaseFilters, search: 'team-a' }).map((row) => row.fileName)
+    ).toEqual(['a.json']);
   });
 });

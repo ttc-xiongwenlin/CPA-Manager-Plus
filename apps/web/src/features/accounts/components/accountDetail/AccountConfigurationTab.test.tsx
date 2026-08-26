@@ -2,6 +2,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { describe, expect, it, vi } from 'vitest';
 import { Input } from '@/components/ui/Input';
 import { CoolingPolicySelect } from '@/components/providers/CoolingPolicySelect';
+import { Select } from '@/components/ui/Select';
 import type { AccountRow } from '@/features/accounts/model/accountRows';
 import type { UseAuthFileConfigurationEditorResult } from '@/features/authFiles/hooks/useAuthFileConfigurationEditor';
 import type { AuthFileConfigurationDraft } from '@/features/authFiles/model/authFileConfiguration';
@@ -43,6 +44,7 @@ const makeDraft = (
   priority: '',
   weight: '',
   note: '',
+  bucket: '',
   headersText: '',
   excludedModelsText: '',
   disableCooling: 'inherit',
@@ -109,7 +111,8 @@ const makeEditor = (
 const renderTab = (
   row: AccountRow,
   editor: UseAuthFileConfigurationEditorResult,
-  onCopyText = vi.fn()
+  onCopyText = vi.fn(),
+  bucketOptions: string[] = []
 ): ReactTestRenderer => {
   let renderer!: ReactTestRenderer;
   act(() => {
@@ -119,6 +122,7 @@ const renderTab = (
         disableControls={false}
         editor={editor}
         onCopyText={onCopyText}
+        bucketOptions={bucketOptions}
       />
     );
   });
@@ -164,6 +168,48 @@ describe('AccountConfigurationTab', () => {
     ).toBe(true);
     expect(text).toContain('auth_files.websockets_label');
     expect(text).not.toContain('ai_providers.claude_cloak_mode_label');
+  });
+
+  it('offers the bucket tag only on codex accounts, with the configured vocabulary', () => {
+    const codex = renderTab(
+      makeRow('codex'),
+      makeEditor('codex', makeDraft({ bucket: 'team-a' })),
+      vi.fn(),
+      ['team-a', 'team-b']
+    );
+    const bucketSelect = codex.root
+      .findAllByType(Select)
+      .find((select) => select.props.ariaLabel === 'auth_files.bucket_display');
+
+    expect(bucketSelect?.props.value).toBe('team-a');
+    expect(bucketSelect?.props.options).toEqual([
+      { value: '', label: 'auth_files.bucket_none' },
+      { value: 'team-a', label: 'team-a' },
+      { value: 'team-b', label: 'team-b' },
+    ]);
+    expect(
+      renderTab(makeRow('claude'), makeEditor('claude'))
+        .root.findAllByType(Select)
+        .some((select) => select.props.ariaLabel === 'auth_files.bucket_display')
+    ).toBe(false);
+  });
+
+  it('keeps a hand-written bucket selectable when it is missing from the configured vocabulary', () => {
+    const renderer = renderTab(
+      makeRow('codex'),
+      makeEditor('codex', makeDraft({ bucket: 'ad-hoc' })),
+      vi.fn(),
+      ['team-a']
+    );
+    const bucketSelect = renderer.root
+      .findAllByType(Select)
+      .find((select) => select.props.ariaLabel === 'auth_files.bucket_display');
+
+    expect(bucketSelect?.props.options).toEqual([
+      { value: '', label: 'auth_files.bucket_none' },
+      { value: 'ad-hoc', label: 'ad-hoc' },
+      { value: 'team-a', label: 'team-a' },
+    ]);
   });
 
   it('shows Claude cloak controls without xAI or websocket fields', () => {

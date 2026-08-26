@@ -8,6 +8,7 @@ import type {
   XaiBillingSummary,
 } from '@/types';
 import type { UsageHeaderSnapshot } from '@/services/api/usageService';
+import { UNTAGGED_BUCKET_FILTER } from '@/features/authFiles/bucketOptions';
 import type {
   MonitoringAccountRow,
   MonitoringApiKeyRow,
@@ -171,6 +172,7 @@ export const buildMonitoringInitialStateFromQuery = (
   const minLatencyMs = params.get('min_latency_ms')?.trim();
   const cacheStatus = params.get('cache_status')?.trim();
   const headerTraceId = params.get('header_trace_id')?.trim();
+  const bucket = params.get('bucket')?.trim();
   const hasRange = fromMs !== null && toMs !== null && fromMs < toMs;
   const hasStructuredScopeFilter = Boolean(
     authFile ||
@@ -179,7 +181,8 @@ export const buildMonitoringInitialStateFromQuery = (
     requestType ||
     minLatencyMs ||
     cacheStatus ||
-    headerTraceId
+    headerTraceId ||
+    bucket
   );
 
   return {
@@ -210,6 +213,70 @@ export const buildMonitoringInitialStateFromQuery = (
         : state.activeDataTab,
   };
 };
+
+export type MonitoringDrilldownFilters = {
+  authFile: string;
+  authIndex: string;
+  projectId: string;
+  requestType: string;
+  minLatencyMs: number | undefined;
+  cacheStatus: string;
+  bucket: string;
+};
+
+export const buildMonitoringInitialDrilldownFilters = (
+  search: string
+): MonitoringDrilldownFilters => {
+  const params = new URLSearchParams(search);
+  const minLatencyMs = Number(params.get('min_latency_ms'));
+  return {
+    authFile: params.get('auth_file')?.trim() || '',
+    authIndex: params.get('auth_index')?.trim() || '',
+    projectId: params.get('project_id')?.trim() || '',
+    requestType: params.get('request_type')?.trim() || '',
+    minLatencyMs: Number.isFinite(minLatencyMs) && minLatencyMs > 0 ? minLatencyMs : undefined,
+    cacheStatus: params.get('cache_status')?.trim() || '',
+    // Unlike the other drilldown filters (which are absent-by-default and use
+    // ''), bucket shares its vocabulary with the provider/model/channel
+    // selectors where 'all' means unset — see buildBucketOptionsFromValues and
+    // hasActiveMonitoringScopeFilter below. Defaulting this to '' would leave
+    // the Select with a value that matches no option, rendering blank.
+    bucket: params.get('bucket')?.trim() || 'all',
+  };
+};
+
+export type MonitoringActiveScopeFilterState = {
+  account: string;
+  provider: string;
+  model: string;
+  channel: string;
+  bucket: string;
+  apiKeyHash: string;
+  headerTraceId: string;
+  status: StatusFilter;
+  authFile: string;
+  projectId: string;
+  requestType: string;
+  minLatencyMs?: number;
+  cacheStatus: string;
+};
+
+export const hasActiveMonitoringScopeFilter = (
+  filters: MonitoringActiveScopeFilterState
+): boolean =>
+  filters.account !== 'all' ||
+  filters.provider !== 'all' ||
+  filters.model !== 'all' ||
+  filters.channel !== 'all' ||
+  filters.bucket !== 'all' ||
+  filters.apiKeyHash !== 'all' ||
+  filters.headerTraceId !== 'all' ||
+  filters.status !== 'all' ||
+  Boolean(filters.authFile) ||
+  Boolean(filters.projectId) ||
+  Boolean(filters.requestType) ||
+  Boolean(filters.minLatencyMs) ||
+  Boolean(filters.cacheStatus);
 
 export const ensureSelectedOption = <T extends { value: string; label: string }>(
   options: T[],
@@ -356,6 +423,27 @@ export const buildChannelOptionsFromValues = (
       ...buildSortedValueOptions(channels),
     ],
     selectedChannel
+  );
+
+export const buildBucketOptionsFromValues = (
+  bucketNames: string[],
+  selectedBucket: string,
+  t: TFunction
+) =>
+  ensureSelectedOption(
+    [
+      {
+        value: 'all',
+        label: shortLabel(
+          t,
+          'monitoring.filter_all_buckets_short',
+          'monitoring.filter_all_buckets'
+        ),
+      },
+      ...buildSortedValueOptions(bucketNames),
+      { value: UNTAGGED_BUCKET_FILTER, label: t('auth_files.bucket_filter_untagged') },
+    ],
+    selectedBucket
   );
 
 const buildApiKeyOptionsFromMap = (
