@@ -136,6 +136,58 @@ func TestMigrationCreatesUsageMonitoringRollupSchema(t *testing.T) {
 	}
 }
 
+// The analytics model filter expands to an expression over requested_model and
+// model, so the latency index has to carry both or a model-filtered p95 read looks
+// up every wide usage_events row in the window instead of scanning the index.
+func TestUsageEventsLatencyIndexCoversModelFilteredRead(t *testing.T) {
+	sqlDB, db := newMonitoringRepositoryStore(t)
+	if err := db.RunDerivedStartupMaintenance(context.Background()); err != nil {
+		t.Fatalf("prepare latency indexes: %v", err)
+	}
+
+	query := `explain query plan select coalesce(latency_ms, 0), coalesce(ttft_ms, 0)
+	from usage_events
+	where timestamp_ms >= ?
+		and coalesce(nullif(requested_model, ''), model, '') in (?)
+		and (latency_ms > 0 or ttft_ms > 0)
+	order by timestamp_ms`
+	plan := strings.Join(explainMonitoringPlan(t, sqlDB, query, int64(1800000000000), "model-a"), "\n")
+
+	if !strings.Contains(plan, "COVERING INDEX idx_usage_events_latency_scope_v2") {
+		t.Fatalf("model-filtered latency read is not covered: %s", plan)
+	}
+}
+
+// The analytics readers select the projection columns through
+// filteredEventSourceSQL, and every one of those columns has to live in the scope
+// index or the window scan stops being covered and falls back to the wide
+// projection row. That regressed once already when the model identity split added
+// requested_model and analytics_model to the select lists without adding them to
+// the index, so pin the whole select list against the plan.
+func TestMonitoringProjectionScopeIndexCoversAnalyticsSelectList(t *testing.T) {
+	sqlDB, db := newMonitoringRepositoryStore(t)
+	if err := db.RunDerivedStartupMaintenance(context.Background()); err != nil {
+		t.Fatalf("prepare monitoring projection indexes: %v", err)
+	}
+
+	query := `explain query plan select
+		p.timestamp_ms, p.api_key_hash, p.auth_index, p.auth_file_snapshot,
+		p.source_hash, p.source, p.account_snapshot, p.auth_label_snapshot,
+		p.provider, p.auth_provider_snapshot, p.auth_project_id_snapshot,
+		p.requested_model, p.analytics_model, p.resolved_model,
+		p.service_tier, p.failed,
+		p.normalized_total_input_tokens, p.output_tokens, p.reasoning_tokens,
+		p.cached_tokens, p.cache_tokens, p.cache_read_tokens,
+		p.cache_creation_tokens, p.total_tokens, p.latency_ms
+	from usage_monitoring_event_projection_v1 p
+	where p.event_id <= ? and p.timestamp_ms >= ? and p.timestamp_ms < ?`
+	plan := strings.Join(explainMonitoringPlan(t, sqlDB, query, int64(1<<62), int64(1800000000000), int64(1800000200000)), "\n")
+
+	if !strings.Contains(plan, "COVERING INDEX idx_usage_monitoring_event_projection_scope_v2") {
+		t.Fatalf("analytics select list is not covered by the scope index: %s", plan)
+	}
+}
+
 func TestRequestMonitoringProjectionTimestampIndexAvoidsTemporaryOrderBy(t *testing.T) {
 	sqlDB, db := newMonitoringRepositoryStore(t)
 	if err := db.RunDerivedStartupMaintenance(context.Background()); err != nil {
@@ -188,7 +240,7 @@ func TestRequestMonitoringProjectionTimestampIndexAvoidsTemporaryOrderBy(t *test
 	// The analytics scope index also leads with timestamp_ms, so it satisfies the
 	// range on its own and would keep the plan off a full temporary sort. Drop it
 	// too, otherwise this control cannot show what the timestamp index buys.
-	if _, err := sqlDB.Exec(`drop index idx_usage_monitoring_event_projection_scope`); err != nil {
+	if _, err := sqlDB.Exec(`drop index idx_usage_monitoring_event_projection_scope_v2`); err != nil {
 		t.Fatalf("drop monitoring projection scope index: %v", err)
 	}
 	withoutIndex := explainMonitoringPlan(t, sqlDB, query, int64(1800000000000), int64(1800000200000), 100)

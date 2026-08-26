@@ -217,22 +217,32 @@ var derivedIndexStatements = []struct {
 	// row lookup drags in its overflow pages. Hour-granular analytics reads carry
 	// their scope and measure columns in the index instead, which keeps the window
 	// scan off the table entirely.
-	{"idx_usage_monitoring_event_projection_scope", "usage_monitoring_event_projection_v1", `create index if not exists idx_usage_monitoring_event_projection_scope
+	// v2 carries requested_model and analytics_model. The analytics reads select
+	// both since the model identity split, and an index missing either one stops
+	// covering the scan: every row then falls back to the wide projection row,
+	// whose kilobyte search_text sits early enough to drag in its overflow pages.
+	// Measured on a 945k-row projection: 0.07s covered vs 39s uncovered.
+	{"idx_usage_monitoring_event_projection_scope_v2", "usage_monitoring_event_projection_v1", `create index if not exists idx_usage_monitoring_event_projection_scope_v2
 		on usage_monitoring_event_projection_v1(
 			timestamp_ms, api_key_hash, auth_index, auth_file_snapshot,
 			source_hash, source, account_snapshot, auth_label_snapshot,
 			provider, auth_provider_snapshot, auth_project_id_snapshot,
-			model, resolved_model, service_tier, failed,
+			model, requested_model, analytics_model, resolved_model,
+			service_tier, failed,
 			normalized_total_input_tokens, output_tokens, reasoning_tokens,
 			cached_tokens, cache_tokens, cache_read_tokens,
 			cache_creation_tokens, total_tokens, latency_ms)`},
 	// ttft_ms only lives on usage_events, so the p95 readers cannot use the
 	// projection; carry the monitoring filter columns here instead so they scan
 	// the index alone rather than looking up every wide usage_events row.
-	{"idx_usage_events_latency_scope", "usage_events", `create index if not exists idx_usage_events_latency_scope
+	// requested_model joins model here because the analytics model filter expands to
+	// coalesce(nullif(requested_model, ''), model, ''); without it a model-filtered
+	// p95 read drops off the covering index and looks up every wide row in the
+	// window. Measured on 945k events: 0.17s covered vs 4.1s uncovered.
+	{"idx_usage_events_latency_scope_v2", "usage_events", `create index if not exists idx_usage_events_latency_scope_v2
 		on usage_events(
 			timestamp_ms, auth_index, api_key_hash, auth_file_snapshot,
-			source_hash, model, latency_ms, ttft_ms)`},
+			source_hash, model, requested_model, latency_ms, ttft_ms)`},
 	{"idx_usage_monitoring_header_latest_timestamp", usageMonitoringHeaderLatestTable, `create index if not exists idx_usage_monitoring_header_latest_timestamp on usage_monitoring_header_latest_v1(timestamp_ms desc, event_id desc)`},
 	{"idx_usage_event_identity_ledger_raw_event_id", usageEventIdentityLedger, `create index if not exists idx_usage_event_identity_ledger_raw_event_id on usage_event_identity_ledger(raw_event_id)`},
 	{"idx_usage_event_identity_ledger_bucket", usageEventIdentityLedger, `create index if not exists idx_usage_event_identity_ledger_bucket on usage_event_identity_ledger(bucket_ms)`},

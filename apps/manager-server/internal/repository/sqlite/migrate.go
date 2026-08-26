@@ -939,6 +939,9 @@ func Migrate(db *sql.DB) error {
 	if err := ensureUsageEventSnapshotColumns(db); err != nil {
 		return err
 	}
+	if err := dropSupersededScopeIndexes(db); err != nil {
+		return err
+	}
 	if err := ensureCodexInspectionRunColumns(db); err != nil {
 		return err
 	}
@@ -2673,6 +2676,31 @@ func ensureQuotaSnapshotLifecycleColumns(db *sql.DB) error {
 			column.definition,
 		)); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// dropSupersededScopeIndexes removes the pre-model-split scope indexes, but only
+// once their replacements are actually present. derivedIndexStatements defers
+// index creation on a non-empty table until the offline cleanup runs, so dropping
+// unconditionally here would leave the analytics scans with no covering index at
+// all for however long that takes.
+func dropSupersededScopeIndexes(db *sql.DB) error {
+	for superseded, replacement := range map[string]string{
+		"idx_usage_monitoring_event_projection_scope": "idx_usage_monitoring_event_projection_scope_v2",
+		"idx_usage_events_latency_scope":              "idx_usage_events_latency_scope_v2",
+	} {
+		var replacements int
+		if err := db.QueryRow(`select count(*) from sqlite_master
+			where type = 'index' and name = ?`, replacement).Scan(&replacements); err != nil {
+			return fmt.Errorf("inspect scope index replacement %s: %w", replacement, err)
+		}
+		if replacements == 0 {
+			continue
+		}
+		if _, err := db.Exec(`drop index if exists ` + superseded); err != nil {
+			return fmt.Errorf("drop superseded scope index %s: %w", superseded, err)
 		}
 	}
 	return nil
