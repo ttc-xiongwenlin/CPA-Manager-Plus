@@ -23,7 +23,16 @@ export type AccountsView = 'accounts' | 'health' | 'oauth';
 export type DetailTab = 'overview' | 'quota' | 'config' | 'models' | 'diagnostics';
 export type SortableAccountColumn = Extract<
   AccountRowSortKey,
-  'name' | 'plan' | 'note' | 'reset' | 'priority' | 'recent' | 'quota' | 'created'
+  | 'name'
+  | 'plan'
+  | 'note'
+  | 'reset'
+  | 'priority'
+  | 'weight'
+  | 'healthTier'
+  | 'recent'
+  | 'quota'
+  | 'created'
 >;
 export type AccountSortFieldValue = 'default' | SortableAccountColumn;
 type AntigravityQuotaMatrixWindowKind = Extract<AccountQuotaWindowKind, 'five_hour' | 'weekly'>;
@@ -63,6 +72,8 @@ export const ACCOUNT_SORT_DEFAULT_DIRECTIONS: Record<
   note: 'asc',
   reset: 'asc',
   priority: 'desc',
+  weight: 'desc',
+  healthTier: 'desc',
   recent: 'desc',
   quota: 'desc',
   created: 'desc',
@@ -84,6 +95,8 @@ export const ACCOUNT_SORT_FIELD_OPTIONS: Array<{
   { value: 'reset', labelKey: 'accounts.col_reset' },
   { value: 'quota', labelKey: 'accounts.col_quota' },
   { value: 'priority', labelKey: 'accounts.col_priority' },
+  { value: 'weight', labelKey: 'auth_files.weight_display' },
+  { value: 'healthTier', labelKey: 'accounts.col_health_tier' },
   { value: 'recent', labelKey: 'accounts.col_recent' },
   { value: 'created', labelKey: 'accounts.col_created' },
 ];
@@ -108,6 +121,7 @@ export const formatPercent = (value: number | null, digits = 0) =>
 export const formatMoney = (value: number) => formatUsd(value);
 
 export const formatCompactNumber = (value: number) => {
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
   return String(value);

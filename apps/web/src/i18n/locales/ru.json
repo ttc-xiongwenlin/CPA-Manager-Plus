@@ -897,6 +897,7 @@
     "col_quota": "Квота",
     "col_reset": "Сброс",
     "col_priority": "Приоритет",
+    "col_health_tier": "Вес здоровья",
     "col_created": "Создано",
     "col_recent": "Недавние запросы",
     "col_actions": "Действия",

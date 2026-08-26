@@ -31,6 +31,8 @@ const SORT_KEYS = new Set([
   'note',
   'reset',
   'priority',
+  'weight',
+  'healthTier',
   'recent',
   'quota',
   'created',

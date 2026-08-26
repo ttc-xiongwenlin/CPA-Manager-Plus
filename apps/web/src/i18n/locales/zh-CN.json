@@ -891,6 +891,7 @@
     "col_quota": "额度",
     "col_reset": "恢复时间",
     "col_priority": "优先级",
+    "col_health_tier": "健康权重",
     "col_created": "创建时间",
     "col_recent": "最近请求",
     "col_actions": "操作",

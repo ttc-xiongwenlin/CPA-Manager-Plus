@@ -40,6 +40,7 @@ import {
   isAccountQuotaRefreshProblemCurrent,
   isAccountRequestCredentialEvidenceCurrent,
   isAccountRequestHealthEvidenceCurrent,
+  orderAccountRequestEvidence,
   resolveAccountAuthenticationProblemEvidence,
   resolveAccountRequestHealthEvidence,
   type AccountRequestEvidenceBySelectionKey,
@@ -96,6 +97,8 @@ export type AccountRowSortKey =
   | 'note'
   | 'reset'
   | 'priority'
+  | 'weight'
+  | 'healthTier'
   | 'recent'
   | 'quota'
   | 'created';
@@ -181,6 +184,8 @@ export interface AccountRow {
   note?: string;
   bucket: string;
   priority: number | null;
+  weight?: number | null;
+  healthTier: number | null;
   createdAtMs: number | null;
   updatedAtMs: number | null;
   quota: AccountQuotaSummary;
@@ -466,6 +471,8 @@ export const buildAccountRows = (
       note: readString(file.note),
       bucket: readString(file.bucket).trim(),
       priority: readNumber(file.priority),
+      weight: readNumber(file.weight),
+      healthTier: readNumber(file.health_tier),
       createdAtMs: readAuthFileCreatedAtMs(file),
       updatedAtMs,
       quota,
@@ -714,8 +721,26 @@ export const sortAccountRows = (
   );
   if (!sort || sort.key === 'default') return defaultSorted;
 
+  const latestRequestAtMsBySelectionKey =
+    sort.key === 'recent' && requestEvidenceBySelectionKey
+      ? new Map(
+          rows.map((row) => {
+            const evidence = requestEvidenceBySelectionKey.get(row.selectionKey);
+            const timestamp = evidence
+              ? orderAccountRequestEvidence(evidence)[0]?.timestamp_ms
+              : undefined;
+            return [
+              row.selectionKey,
+              typeof timestamp === 'number' && Number.isFinite(timestamp) && timestamp > 0
+                ? timestamp
+                : null,
+            ] as const;
+          })
+        )
+      : undefined;
+
   return defaultSorted.sort((left, right) => {
-    const byColumn = compareAccountRowsBySort(left, right, sort);
+    const byColumn = compareAccountRowsBySort(left, right, sort, latestRequestAtMsBySelectionKey);
     return byColumn === 0
       ? compareDefaultAccountRows(left, right, requestEvidenceBySelectionKey)
       : byColumn;
@@ -877,7 +902,12 @@ const compareAccountPlanTypes = (
   return rankComparison || compareText(left ?? '', right ?? '', direction);
 };
 
-const compareAccountRowsBySort = (left: AccountRow, right: AccountRow, sort: AccountRowSort) => {
+const compareAccountRowsBySort = (
+  left: AccountRow,
+  right: AccountRow,
+  sort: AccountRowSort,
+  latestRequestAtMsBySelectionKey?: ReadonlyMap<string, number | null>
+) => {
   if (sort.key === 'name') {
     const accountComparison = compareText(left.accountLabel, right.accountLabel, sort.direction);
     return accountComparison || compareText(left.fileName, right.fileName, sort.direction);
@@ -891,7 +921,19 @@ const compareAccountRowsBySort = (left: AccountRow, right: AccountRow, sort: Acc
   if (sort.key === 'priority') {
     return compareNumbers(left.priority ?? 0, right.priority ?? 0, sort.direction);
   }
+  if (sort.key === 'weight') {
+    return compareNumbers(left.weight ?? 1, right.weight ?? 1, sort.direction);
+  }
+  if (sort.key === 'healthTier') {
+    return compareNullableNumbers(left.healthTier, right.healthTier, sort.direction);
+  }
   if (sort.key === 'recent') {
+    const byLatestRequest = compareNullableNumbers(
+      latestRequestAtMsBySelectionKey?.get(left.selectionKey) ?? null,
+      latestRequestAtMsBySelectionKey?.get(right.selectionKey) ?? null,
+      sort.direction
+    );
+    if (byLatestRequest !== 0) return byLatestRequest;
     const leftTotal = left.usage.success + left.usage.failure;
     const rightTotal = right.usage.success + right.usage.failure;
     return compareNumbers(leftTotal, rightTotal, sort.direction);

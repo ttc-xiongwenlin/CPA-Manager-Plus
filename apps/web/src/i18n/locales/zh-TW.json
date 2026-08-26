@@ -891,6 +891,7 @@
     "col_quota": "額度",
     "col_reset": "恢復時間",
     "col_priority": "優先級",
+    "col_health_tier": "健康權重",
     "col_created": "建立時間",
     "col_recent": "最近請求",
     "col_actions": "操作",

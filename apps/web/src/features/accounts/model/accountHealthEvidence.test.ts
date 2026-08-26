@@ -48,6 +48,7 @@ const makeRow = (overrides: Partial<AccountRow> = {}): AccountRow => {
     projectId: '',
     bucket: '',
     priority: null,
+    healthTier: null,
     createdAtMs: null,
     updatedAtMs: null,
     quota: {

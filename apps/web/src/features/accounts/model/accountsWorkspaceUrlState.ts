@@ -41,6 +41,8 @@ const SORT_KEY_SET: ReadonlySet<AccountsWorkspaceUiState['accountSort']['key']> 
   'note',
   'reset',
   'priority',
+  'weight',
+  'healthTier',
   'recent',
   'quota',
   'created',

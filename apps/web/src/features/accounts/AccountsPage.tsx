@@ -6939,7 +6939,9 @@ export function AccountsPage() {
               ? formatCompactNumber(accountHistory.total_tokens)
               : '-';
             const accountHistoryCostValue = accountHistoryMatched
-              ? formatMoney(accountHistory.total_cost)
+              ? accountHistory.total_cost >= 1000
+                ? `$${formatCompactNumber(accountHistory.total_cost)}`
+                : formatMoney(accountHistory.total_cost)
               : '-';
             const accountHistorySuccessValue = accountHistoryMatched
               ? formatHistorySuccessRate(accountHistory.success_rate)
@@ -7043,6 +7045,21 @@ export function AccountsPage() {
                       title={t('accounts.col_priority')}
                     >
                       {t('accounts.col_priority')} {item.identity.priority}
+                    </span>
+                    <span
+                      className={styles.accountPriorityMeta}
+                      title={t('auth_files.weight_display')}
+                    >
+                      {t('auth_files.weight_display')} {item.identity.weight}
+                    </span>
+                    <span
+                      className={styles.accountPriorityMeta}
+                      title={t('accounts.col_health_tier')}
+                    >
+                      {t('accounts.col_health_tier')}{' '}
+                      {item.identity.healthTier === null
+                        ? '—'
+                        : `×${item.identity.healthTier / 2}`}
                     </span>
                   </div>
                 </div>

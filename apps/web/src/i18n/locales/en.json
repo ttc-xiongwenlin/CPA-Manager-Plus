@@ -893,6 +893,7 @@
     "col_quota": "Quota",
     "col_reset": "Reset",
     "col_priority": "Priority",
+    "col_health_tier": "Health weight",
     "col_created": "Created",
     "col_recent": "Recent Requests",
     "col_actions": "Actions",

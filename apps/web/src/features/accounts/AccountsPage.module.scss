@@ -631,9 +631,10 @@
 
 .accountHistoryGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 76px));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   justify-content: center;
   gap: 10px 8px;
+  width: 100%;
   min-width: 0;
 }
 
@@ -642,7 +643,6 @@
   align-items: center;
   gap: 5px;
   min-width: 0;
-  max-width: 76px;
   color: var(--text-primary);
 
   strong {

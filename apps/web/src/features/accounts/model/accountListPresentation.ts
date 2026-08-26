@@ -98,6 +98,8 @@ export interface AccountListPresentationItem {
     planType: string | null;
     priority: number;
     priorityIsNegative: boolean;
+    weight: number;
+    healthTier: number | null;
   };
   health: {
     status: AccountListHealthStatusKey;
@@ -1183,6 +1185,8 @@ export const buildAccountListItem = (
       planType: row.planType,
       priority: row.priority ?? 0,
       priorityIsNegative: row.priority !== null && row.priority < 0,
+      weight: row.weight ?? 1,
+      healthTier: row.healthTier,
     },
     health: {
       status: health.status,

@@ -2595,6 +2595,48 @@ describe('accountRows', () => {
     ).toEqual(['low.json', 'high.json', 'middle.json']);
   });
 
+  it('sorts rows by weight with missing weight treated as the default 1', () => {
+    const rows = buildAccountRows(
+      [
+        { name: 'heavy.json', type: 'codex', weight: 5 },
+        { name: 'unset.json', type: 'codex' },
+        { name: 'excluded.json', type: 'codex', weight: 0 },
+      ],
+      emptyStores()
+    );
+
+    expect(
+      sortAccountRows(rows, { key: 'weight', direction: 'desc' }).map((row) => row.fileName)
+    ).toEqual(['heavy.json', 'unset.json', 'excluded.json']);
+    expect(
+      sortAccountRows(rows, { key: 'weight', direction: 'asc' }).map((row) => row.fileName)
+    ).toEqual(['excluded.json', 'unset.json', 'heavy.json']);
+  });
+
+  it('sorts the recent column by latest request evidence before falling back to counts', () => {
+    const rows = buildAccountRows(
+      [
+        { name: 'busy.json', type: 'codex', recent_requests: [{ success: 9, failed: 0 }] },
+        { name: 'older.json', type: 'codex', recent_requests: [{ success: 1, failed: 0 }] },
+        { name: 'newest.json', type: 'codex', recent_requests: [{ success: 4, failed: 0 }] },
+      ],
+      emptyStores()
+    );
+    const evidence = new Map([
+      [rows[1].selectionKey, { latestRequest: { timestamp_ms: 2_000, failed: false } }],
+      [rows[2].selectionKey, { latestRequest: { timestamp_ms: 3_000, failed: false } }],
+    ]);
+
+    expect(
+      sortAccountRows(rows, { key: 'recent', direction: 'desc' }, evidence).map(
+        (row) => row.fileName
+      )
+    ).toEqual(['newest.json', 'older.json', 'busy.json']);
+    expect(
+      sortAccountRows(rows, { key: 'recent', direction: 'desc' }).map((row) => row.fileName)
+    ).toEqual(['busy.json', 'newest.json', 'older.json']);
+  });
+
   it('sorts the name column by account label instead of credential file name', () => {
     const rows = buildAccountRows(
       [
