@@ -766,6 +766,7 @@ export function useUsageAnalytics() {
     refresh,
     summary: adapted.summary,
     summaryDelta,
+    businessOutcome: adapted.businessOutcome,
     timeline: adapted.timeline,
     modelRows: adapted.modelRows,
     apiKeyRows: adapted.apiKeyRows,

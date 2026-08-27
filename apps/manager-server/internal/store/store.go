@@ -77,6 +77,7 @@ type FilterSelectorValues = usageevent.FilterSelectorValues
 type HeatmapPoint = usageevent.HeatmapPoint
 type ChannelModelStat = usageevent.ChannelModelStat
 type FailureSourceStat = usageevent.FailureSourceStat
+type BusinessOutcomeHourRow = usageevent.BusinessOutcomeHourRow
 type AccountModelStat = usageevent.AccountModelStat
 type CredentialModelStat = usageevent.CredentialModelStat
 type CredentialTimelinePoint = usageevent.CredentialTimelinePoint
@@ -860,6 +861,10 @@ func (s *Store) ChannelModelStatsWithFilter(ctx context.Context, filter Analytic
 
 func (s *Store) FailureSourcesWithFilter(ctx context.Context, filter AnalyticsFilter) ([]FailureSourceStat, error) {
 	return s.UsageEvents.FailureSourcesWithFilter(ctx, filter)
+}
+
+func (s *Store) BusinessOutcomeTimelineWithFilter(ctx context.Context, filter AnalyticsFilter) ([]BusinessOutcomeHourRow, bool, error) {
+	return s.UsageEvents.BusinessOutcomeTimelineWithFilter(ctx, filter)
 }
 
 func (s *Store) AccountModelStatsWithFilter(ctx context.Context, filter AnalyticsFilter) ([]AccountModelStat, error) {

@@ -30,6 +30,8 @@ import {
   buildUsageCredentialTimeline,
   buildUsageApiKeyTimeline,
   buildUsageTimeline,
+  adaptUsageAnalyticsData,
+  buildUsageBusinessOutcome,
   computeCacheHitRate,
   computeRowAverageCostPerCall,
   computeRowCacheHitRate,
@@ -112,6 +114,7 @@ describe('usage analytics request model', () => {
       summary_percentiles: true,
       summary_comparison: true,
       timeline: true,
+      business_outcome: true,
       model_stats: true,
       channel_share: true,
       api_key_stats: true,
@@ -129,6 +132,7 @@ describe('usage analytics request model', () => {
       summary_profile: 'compact',
       summary_comparison: true,
       timeline: true,
+      business_outcome: true,
       model_stats: true,
       api_key_stats: true,
       anomaly_points: true,
@@ -1637,5 +1641,99 @@ describe('usage analytics bucket filter', () => {
   it('carries bucket into the drill-down url', () => {
     const url = buildMonitoringDetailUrl({ bucketMs: 0, bucketEndMs: 1000 }, { bucket: 'anon' });
     expect(url).toContain('bucket=anon');
+  });
+});
+
+describe('usage business outcome', () => {
+  it('maps the request-folded outcome and indexes bucket failure rates', () => {
+    const outcome = buildUsageBusinessOutcome({
+      requests: 200,
+      failures: 2,
+      error_rate: 0.01,
+      rescued_requests: 6,
+      retry_rescue_rate: 0.75,
+      timeline: [
+        { bucket_ms: NOW_MS, requests: 120, failures: 0, rescued_requests: 4, failure_rate: 0 },
+        {
+          bucket_ms: NOW_MS + HOUR_MS,
+          requests: 80,
+          failures: 2,
+          rescued_requests: 2,
+          failure_rate: 0.025,
+        },
+      ],
+    });
+
+    expect(outcome).toMatchObject({
+      requests: 200,
+      failures: 2,
+      errorRate: 0.01,
+      rescuedRequests: 6,
+      retryRescueRate: 0.75,
+    });
+    expect(outcome?.failureRateByBucketMs.get(NOW_MS)).toBe(0);
+    expect(outcome?.failureRateByBucketMs.get(NOW_MS + HOUR_MS)).toBe(0.025);
+  });
+
+  it('returns null when the server withheld the fold', () => {
+    expect(buildUsageBusinessOutcome(undefined)).toBeNull();
+    expect(buildUsageBusinessOutcome(null)).toBeNull();
+  });
+
+  it('joins business failure rates onto matching timeline buckets', () => {
+    const adapted = adaptUsageAnalyticsData(
+      {
+        generated_at_ms: NOW_MS,
+        granularity: 'hour',
+        timeline: [
+          { bucket_ms: NOW_MS, label: '', calls: 10, tokens: 100, success: 9, failure: 1 },
+          {
+            bucket_ms: NOW_MS + HOUR_MS,
+            label: '',
+            calls: 5,
+            tokens: 50,
+            success: 5,
+            failure: 0,
+          },
+        ],
+        business_outcome: {
+          requests: 14,
+          failures: 1,
+          error_rate: 1 / 14,
+          rescued_requests: 1,
+          retry_rescue_rate: 0.5,
+          timeline: [
+            {
+              bucket_ms: NOW_MS,
+              requests: 9,
+              failures: 1,
+              rescued_requests: 1,
+              failure_rate: 1 / 9,
+            },
+          ],
+        },
+      },
+      'hour'
+    );
+
+    expect(adapted.businessOutcome).toMatchObject({ requests: 14, failures: 1 });
+    expect(adapted.timeline[0].businessFailureRate).toBeCloseTo(1 / 9);
+    // Buckets without a business row stay null so the chart breaks the line
+    // instead of drawing zero.
+    expect(adapted.timeline[1].businessFailureRate).toBeNull();
+  });
+
+  it('leaves business failure rates null when the outcome is absent', () => {
+    const adapted = adaptUsageAnalyticsData(
+      {
+        generated_at_ms: NOW_MS,
+        granularity: 'hour',
+        timeline: [{ bucket_ms: NOW_MS, label: '', calls: 10, tokens: 100, success: 9, failure: 1 }],
+      },
+      'hour'
+    );
+
+    expect(adapted.businessOutcome).toBeNull();
+    expect(adapted.timeline[0].businessFailureRate).toBeNull();
   });
 });

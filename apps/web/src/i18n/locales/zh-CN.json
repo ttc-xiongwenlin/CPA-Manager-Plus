@@ -3996,6 +3996,8 @@
     "metric_average_latency": "平均延迟",
     "success_rate": "成功率",
     "failure_rate": "失败率",
+    "business_error_rate": "业务错误率",
+    "retry_rescue_rate": "重试挽救率",
     "share": "占比",
     "cost_share": "成本占比",
     "model_detail_title": "模型详情: {{model}}",

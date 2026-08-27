@@ -3999,6 +3999,8 @@
     "metric_average_latency": "Средняя задержка",
     "success_rate": "Успешность",
     "failure_rate": "Доля ошибок",
+    "business_error_rate": "Бизнес-доля ошибок",
+    "retry_rescue_rate": "Доля спасённых повтором",
     "share": "Доля",
     "cost_share": "Доля затрат",
     "model_detail_title": "Детали модели: {{model}}",

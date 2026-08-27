@@ -3998,6 +3998,8 @@
     "metric_average_latency": "Average Latency",
     "success_rate": "Success Rate",
     "failure_rate": "Failure Rate",
+    "business_error_rate": "Business Error Rate",
+    "retry_rescue_rate": "Retry Rescue Rate",
     "share": "Share",
     "cost_share": "Cost share",
     "model_detail_title": "Model Details: {{model}}",

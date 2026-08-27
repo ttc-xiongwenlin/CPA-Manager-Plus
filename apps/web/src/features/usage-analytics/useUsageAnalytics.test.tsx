@@ -230,6 +230,7 @@ describe('useUsageAnalytics request orchestration', () => {
       summary_percentiles: true,
       summary_comparison: true,
       timeline: true,
+      business_outcome: true,
       model_stats: true,
       channel_share: true,
       api_key_stats: true,

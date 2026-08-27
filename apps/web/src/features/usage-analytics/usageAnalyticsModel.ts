@@ -2,6 +2,7 @@ import type {
   MonitoringAnalyticsAnomalyPoint,
   MonitoringAnalyticsApiKeyStatRow,
   MonitoringAnalyticsApiKeyTimelinePoint,
+  MonitoringAnalyticsBusinessOutcome,
   MonitoringAnalyticsChannelShareRow,
   MonitoringAnalyticsCredentialStatRow,
   MonitoringAnalyticsCredentialTimelinePoint,
@@ -119,6 +120,9 @@ export type UsageTimelinePoint = {
   failureCount: number;
   successRate: number;
   failureRate: number;
+  // Request-folded failure rate for the same bucket; null while the business
+  // outcome series is unavailable (scope filter active or index missing).
+  businessFailureRate: number | null;
   averageLatencyMs: number | null;
   p95LatencyMs: number | null;
   p95TtftMs: number | null;
@@ -780,6 +784,7 @@ export const buildUsageAnalyticsInclude = (
         summary_percentiles: true,
         summary_comparison: true,
         timeline: true,
+        business_outcome: true,
         model_stats: true,
         channel_share: true,
         api_key_stats: true,
@@ -790,6 +795,7 @@ export const buildUsageAnalyticsInclude = (
       Object.assign(include, {
         summary_comparison: true,
         timeline: true,
+        business_outcome: true,
         model_stats: true,
         api_key_stats: true,
         anomaly_points: true,
@@ -940,6 +946,7 @@ export const buildUsageTimeline = (
         toNumber(point.success_rate) || (requestCount > 0 ? successCount / requestCount : 0),
       failureRate:
         toNumber(point.failure_rate) || (requestCount > 0 ? failureCount / requestCount : 0),
+      businessFailureRate: null,
       averageLatencyMs: toNullableNumber(point.average_latency_ms),
       p95LatencyMs: toNullableNumber(point.p95_latency_ms),
       p95TtftMs: toNullableNumber(point.p95_ttft_ms),
@@ -2404,6 +2411,33 @@ export const buildDrilldownPreview = (
   });
 };
 
+export type UsageBusinessOutcome = {
+  requests: number;
+  failures: number;
+  errorRate: number;
+  rescuedRequests: number;
+  retryRescueRate: number;
+  failureRateByBucketMs: Map<number, number>;
+};
+
+export const buildUsageBusinessOutcome = (
+  outcome?: MonitoringAnalyticsBusinessOutcome | null
+): UsageBusinessOutcome | null => {
+  if (!outcome) return null;
+  const failureRateByBucketMs = new Map<number, number>();
+  for (const point of outcome.timeline ?? []) {
+    failureRateByBucketMs.set(toNumber(point.bucket_ms), toNumber(point.failure_rate));
+  }
+  return {
+    requests: toNumber(outcome.requests),
+    failures: toNumber(outcome.failures),
+    errorRate: toNumber(outcome.error_rate),
+    rescuedRequests: toNumber(outcome.rescued_requests),
+    retryRescueRate: toNumber(outcome.retry_rescue_rate),
+    failureRateByBucketMs,
+  };
+};
+
 export const adaptUsageAnalyticsData = (
   data: MonitoringAnalyticsResponse | null | undefined,
   granularity: UsageAnalyticsResolvedGranularity,
@@ -2412,7 +2446,15 @@ export const adaptUsageAnalyticsData = (
   credentialDisplayContext?: UsageCredentialDisplayContext
 ) => {
   const summary = buildUsageSummary(data?.summary);
-  const timeline = buildUsageTimeline(data?.timeline ?? [], granularity);
+  const businessOutcome = buildUsageBusinessOutcome(data?.business_outcome);
+  const timeline = buildUsageTimeline(data?.timeline ?? [], granularity).map((point) =>
+    businessOutcome && businessOutcome.failureRateByBucketMs.size > 0
+      ? {
+          ...point,
+          businessFailureRate: businessOutcome.failureRateByBucketMs.get(point.bucketMs) ?? null,
+        }
+      : point
+  );
   const credentialTimeline = buildUsageCredentialTimeline(
     data?.credential_timeline ?? [],
     granularity,
@@ -2434,6 +2476,7 @@ export const adaptUsageAnalyticsData = (
   return {
     summary,
     summaryComparison: data?.summary_comparison,
+    businessOutcome,
     timeline,
     credentialTimeline,
     modelRows,

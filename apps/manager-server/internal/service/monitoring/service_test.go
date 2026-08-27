@@ -3400,3 +3400,115 @@ func historyTestKey(authFileSnapshot, authIndex, provider, accountSnapshot strin
 	}
 	return key
 }
+
+func TestAnalyticsBusinessOutcomeFoldsRetries(t *testing.T) {
+	db := newMonitoringTestStore(t)
+	ctx := context.Background()
+	// The covering index ships through cleanup-derived in production; the
+	// startup maintenance creates it here while the table is still empty.
+	if err := db.RunDerivedStartupMaintenance(ctx); err != nil {
+		t.Fatalf("prepare post-listen indexes: %v", err)
+	}
+	hourA := time.Date(2026, time.March, 1, 10, 0, 0, 0, time.UTC).UnixMilli()
+	hourB := hourA + 3_600_000
+	toMS := hourB + 3_600_000
+
+	withRequestID := func(event usage.Event, requestID string) usage.Event {
+		event.RequestID = requestID
+		return event
+	}
+	if _, err := db.InsertEvents(ctx, []usage.Event{
+		// Failed attempt rescued by a retry: one rescued business request.
+		withRequestID(monitoringEvent("bo-r1-a1", hourA+10_000, "gpt-a", "auth-1", "source-a", true, 10, 0, 0, 0, 10, nil), "req-1"),
+		withRequestID(monitoringEvent("bo-r1-a2", hourA+20_000, "gpt-a", "auth-2", "source-a", false, 10, 5, 0, 0, 15, nil), "req-1"),
+		// Single successful attempt.
+		withRequestID(monitoringEvent("bo-r2-a1", hourA+30_000, "gpt-a", "auth-1", "source-a", false, 10, 5, 0, 0, 15, nil), "req-2"),
+		// Every attempt failed: one business failure in hour B.
+		withRequestID(monitoringEvent("bo-r3-a1", hourB+10_000, "gpt-a", "auth-1", "source-a", true, 10, 0, 0, 0, 10, nil), "req-3"),
+		withRequestID(monitoringEvent("bo-r3-a2", hourB+20_000, "gpt-a", "auth-2", "source-a", true, 10, 0, 0, 0, 10, nil), "req-3"),
+	}); err != nil {
+		t.Fatalf("insert events: %v", err)
+	}
+
+	resp, err := New(db).Analytics(ctx, Request{
+		FromMS: hourA,
+		ToMS:   toMS,
+		NowMS:  toMS,
+		Include: Include{
+			Summary:         true,
+			Timeline:        true,
+			BusinessOutcome: true,
+			Granularity:     "hour",
+		},
+	})
+	if err != nil {
+		t.Fatalf("analytics: %v", err)
+	}
+	if resp.Summary == nil || resp.Summary.TotalCalls != 5 || resp.Summary.FailureCalls != 3 {
+		t.Fatalf("attempt summary = %#v, want 5 calls / 3 failures", resp.Summary)
+	}
+	outcome := resp.BusinessOutcome
+	if outcome == nil {
+		t.Fatalf("business outcome missing")
+	}
+	if outcome.Requests != 3 || outcome.Failures != 1 || outcome.RescuedRequests != 1 {
+		t.Fatalf("business outcome = %#v, want 3 requests / 1 failure / 1 rescued", outcome)
+	}
+	if diff := outcome.ErrorRate - 1.0/3.0; diff < -1e-9 || diff > 1e-9 {
+		t.Fatalf("business error rate = %v, want 1/3", outcome.ErrorRate)
+	}
+	if outcome.RetryRescueRate != 0.5 {
+		t.Fatalf("retry rescue rate = %v, want 0.5", outcome.RetryRescueRate)
+	}
+	if len(outcome.Timeline) != 2 {
+		t.Fatalf("business timeline = %#v, want 2 buckets", outcome.Timeline)
+	}
+	if outcome.Timeline[0].BucketMS != hourA || outcome.Timeline[0].Requests != 2 ||
+		outcome.Timeline[0].Failures != 0 || outcome.Timeline[0].RescuedRequests != 1 ||
+		outcome.Timeline[0].FailureRate != 0 {
+		t.Fatalf("business bucket A = %#v", outcome.Timeline[0])
+	}
+	if outcome.Timeline[1].BucketMS != hourB || outcome.Timeline[1].Requests != 1 ||
+		outcome.Timeline[1].Failures != 1 || outcome.Timeline[1].FailureRate != 1 {
+		t.Fatalf("business bucket B = %#v", outcome.Timeline[1])
+	}
+
+	// Retries hop across accounts, so any scope filter disables the fold.
+	scoped, err := New(db).Analytics(ctx, Request{
+		FromMS:  hourA,
+		ToMS:    toMS,
+		NowMS:   toMS,
+		Filters: Filters{AuthIndices: []string{"auth-1"}},
+		Include: Include{Summary: true, BusinessOutcome: true, Granularity: "hour"},
+	})
+	if err != nil {
+		t.Fatalf("scoped analytics: %v", err)
+	}
+	if scoped.BusinessOutcome != nil {
+		t.Fatalf("scoped business outcome = %#v, want nil", scoped.BusinessOutcome)
+	}
+}
+
+func TestAnalyticsBusinessOutcomeUnavailableWithoutIndex(t *testing.T) {
+	db := newMonitoringTestStore(t)
+	ctx := context.Background()
+	// No startup maintenance: a freshly deployed production server runs
+	// before cleanup-derived has created the covering index.
+	if _, err := db.InsertEvents(ctx, []usage.Event{
+		monitoringEvent("bo-noindex", 1_778_000_000_000, "gpt-a", "auth-1", "source-a", false, 10, 5, 0, 0, 15, nil),
+	}); err != nil {
+		t.Fatalf("insert events: %v", err)
+	}
+	resp, err := New(db).Analytics(ctx, Request{
+		FromMS:  1_777_999_000_000,
+		ToMS:    1_778_001_000_000,
+		NowMS:   1_778_001_000_000,
+		Include: Include{Summary: true, BusinessOutcome: true, Granularity: "hour"},
+	})
+	if err != nil {
+		t.Fatalf("analytics: %v", err)
+	}
+	if resp.BusinessOutcome != nil {
+		t.Fatalf("business outcome = %#v, want nil while the index is missing", resp.BusinessOutcome)
+	}
+}

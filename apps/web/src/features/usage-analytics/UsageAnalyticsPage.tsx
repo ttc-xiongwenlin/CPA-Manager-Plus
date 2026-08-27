@@ -1113,6 +1113,21 @@ const buildHealthChartOption = (
       type: 'line',
       yAxisIndex: 0,
     },
+    // Request-folded failure rate: only present when the server produced the
+    // fold (no scope filter, covering index installed).
+    ...(timeline.some((point) => point.businessFailureRate !== null)
+      ? [
+          {
+            data: timeline.map((point) => point.businessFailureRate),
+            lineStyle: { type: 'dashed' as const, width: 2.5 },
+            name: t('usage_analytics.business_error_rate'),
+            showSymbol: timeline.length <= 36,
+            smooth: 0.25,
+            type: 'line' as const,
+            yAxisIndex: 0,
+          },
+        ]
+      : []),
     {
       barMaxWidth: 16,
       data: timeline.map((point) => point.averageLatencyMs ?? 0),
@@ -2581,6 +2596,7 @@ function UsageAnalyticsPageInner() {
     () =>
       buildUsageOverviewSummaryCards({
         anomalyCount: usage.anomalyPoints.length,
+        businessOutcome: usage.businessOutcome,
         locale: i18n.language,
         reasoningTokens: overviewReasoningTokens,
         summary: usage.summary,
@@ -2592,6 +2608,7 @@ function UsageAnalyticsPageInner() {
       overviewReasoningTokens,
       t,
       usage.anomalyPoints.length,
+      usage.businessOutcome,
       usage.summary,
       usage.summaryDelta,
     ]

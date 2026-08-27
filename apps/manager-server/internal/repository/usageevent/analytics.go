@@ -196,6 +196,18 @@ type FailureSourceStat struct {
 	AvgLatencyMS         sql.NullFloat64
 }
 
+// BusinessOutcomeHourRow carries one UTC hour of request-folded outcome
+// totals. A business request groups every upstream attempt sharing its
+// request_id: it fails only when all attempts failed, and counts as rescued
+// when at least one attempt failed but a retry eventually succeeded. Rows
+// bucket on min(timestamp_ms) — the hour of the request's first attempt.
+type BusinessOutcomeHourRow struct {
+	BucketMS        int64
+	Requests        int64
+	Failures        int64
+	RescuedRequests int64
+}
+
 type AccountModelStat struct {
 	usage.LongContextTokens
 	usage.PricingBand
@@ -1510,6 +1522,101 @@ order by sum(case when failed = 1 then 1 else 0 end) desc, max(timestamp_ms) des
 		stats = append(stats, stat)
 	}
 	return stats, rows.Err()
+}
+
+const businessOutcomeIndexName = "idx_usage_events_request_outcome"
+
+// businessOutcomeTimelineSQL folds attempts into requests by request_id and
+// buckets each request on the UTC hour of its first attempt
+// (min(timestamp_ms)). `indexed by` pins the covering scan: the production
+// database carries no sqlite_stat1, and without the hint the planner
+// satisfies the GROUP BY through idx_usage_events_request_id, which misses
+// failed and pays a wide-row lookup per attempt (measured 62s for a 24h
+// window vs 0.04s pinned). Events without a request_id cannot fold, so each
+// counts as its own single-attempt request keyed by rowid, which the index
+// covers.
+const businessOutcomeTimelineSQL = `select
+	first_ts / 3600000 * 3600000 as bucket_ms,
+	count(*),
+	coalesce(sum(all_failed), 0),
+	coalesce(sum(any_failed - all_failed), 0)
+from (
+	select
+		min(timestamp_ms) as first_ts,
+		min(failed) as all_failed,
+		max(failed) as any_failed
+	from usage_events indexed by ` + businessOutcomeIndexName + `
+	where timestamp_ms >= ? and timestamp_ms < ?
+	group by coalesce(nullif(request_id, ''), 'event:' || id)
+)
+group by bucket_ms
+order by bucket_ms`
+
+// BusinessOutcomeSupportsFilter reports whether the filter carries nothing
+// beyond the time window. Retries hop across accounts, credentials and
+// models, so folding attempts by request_id under any scope filter would
+// grade fold groups whose other attempts the filter excluded; the business
+// outcome metrics stay global-only.
+func BusinessOutcomeSupportsFilter(filter AnalyticsFilter) bool {
+	return strings.TrimSpace(filter.SearchQuery) == "" &&
+		strings.TrimSpace(filter.SearchAPIKeyHash) == "" &&
+		len(filter.Models) == 0 &&
+		len(filter.Providers) == 0 &&
+		len(filter.Accounts) == 0 &&
+		len(filter.CredentialIDs) == 0 &&
+		len(filter.AuthFiles) == 0 &&
+		len(filter.AuthIndices) == 0 &&
+		len(filter.APIKeyHashes) == 0 &&
+		len(filter.SourceHashes) == 0 &&
+		len(filter.ProjectIDs) == 0 &&
+		len(filter.RequestTypes) == 0 &&
+		len(filter.HeaderErrorKinds) == 0 &&
+		len(filter.HeaderErrorCodes) == 0 &&
+		len(filter.HeaderQuotaPlans) == 0 &&
+		len(filter.HeaderTraceIDs) == 0 &&
+		filter.IncludeFailed &&
+		!filter.FailedOnly &&
+		filter.MinLatencyMS <= 0 &&
+		strings.TrimSpace(filter.CacheStatus) == ""
+}
+
+// BusinessOutcomeTimelineWithFilter folds upstream attempts into client
+// requests by request_id and reports hourly outcome totals. It returns
+// available=false without error when the filter carries scope beyond the
+// time window (see BusinessOutcomeSupportsFilter) or while the covering
+// index is missing: the index ships through the offline cleanup-derived
+// command, so a freshly deployed server may serve requests before it exists.
+func (r *repository) BusinessOutcomeTimelineWithFilter(ctx context.Context, filter AnalyticsFilter) ([]BusinessOutcomeHourRow, bool, error) {
+	if !BusinessOutcomeSupportsFilter(filter) {
+		return nil, false, nil
+	}
+	var indexCount int
+	if err := r.db.QueryRowContext(ctx,
+		`select count(*) from sqlite_master where type = 'index' and name = ?`,
+		businessOutcomeIndexName).Scan(&indexCount); err != nil {
+		return nil, false, err
+	}
+	if indexCount == 0 {
+		return nil, false, nil
+	}
+	rows, err := r.db.QueryContext(ctx, businessOutcomeTimelineSQL, filter.FromMS, filter.ToMS)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+
+	hourRows := make([]BusinessOutcomeHourRow, 0)
+	for rows.Next() {
+		var row BusinessOutcomeHourRow
+		if err := rows.Scan(&row.BucketMS, &row.Requests, &row.Failures, &row.RescuedRequests); err != nil {
+			return nil, false, err
+		}
+		hourRows = append(hourRows, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	return hourRows, true, nil
 }
 
 func (r *repository) AccountModelStatsWithFilter(ctx context.Context, filter AnalyticsFilter) ([]AccountModelStat, error) {

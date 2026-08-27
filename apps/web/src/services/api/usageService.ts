@@ -811,6 +811,7 @@ export interface MonitoringAnalyticsInclude {
   channel_share?: boolean;
   model_stats?: boolean;
   failure_sources?: boolean;
+  business_outcome?: boolean;
   account_stats?: boolean;
   credential_stats?: boolean;
   credential_timeline?: boolean;
@@ -1288,6 +1289,27 @@ export interface MonitoringAnalyticsSummaryComparison {
   success_rate: number;
   total_tokens: number;
   total_cost: number;
+}
+
+export interface MonitoringAnalyticsBusinessOutcomePoint {
+  bucket_ms: number;
+  requests: number;
+  failures: number;
+  rescued_requests: number;
+  failure_rate: number;
+}
+
+// Client-visible outcomes with upstream retries folded into their request:
+// a request fails only when every attempt sharing its request_id failed.
+// Omitted by the server when a scope filter is active or the covering index
+// is not yet installed.
+export interface MonitoringAnalyticsBusinessOutcome {
+  requests: number;
+  failures: number;
+  error_rate: number;
+  rescued_requests: number;
+  retry_rescue_rate: number;
+  timeline?: MonitoringAnalyticsBusinessOutcomePoint[];
 }
 
 export interface MonitoringAnalyticsTimelinePoint {
@@ -1876,6 +1898,7 @@ export interface MonitoringAnalyticsResponse {
   model_stats?: MonitoringAnalyticsModelStat[];
   channel_share?: MonitoringAnalyticsChannelShareRow[];
   failure_sources?: MonitoringAnalyticsFailureSourceRow[];
+  business_outcome?: MonitoringAnalyticsBusinessOutcome;
   account_stats?: MonitoringAnalyticsAccountStatRow[];
   credential_stats?: MonitoringAnalyticsCredentialStatRow[];
   credential_timeline?: MonitoringAnalyticsCredentialTimelinePoint[];

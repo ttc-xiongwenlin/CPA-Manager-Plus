@@ -243,6 +243,18 @@ var derivedIndexStatements = []struct {
 		on usage_events(
 			timestamp_ms, auth_index, api_key_hash, auth_file_snapshot,
 			source_hash, model, requested_model, latency_ms, ttft_ms)`},
+	// The business outcome reads fold attempts into client requests by
+	// request_id (min/max of failed per group), so they window on
+	// timestamp_ms and carry request_id and failed in the index to stay off
+	// the wide usage_events row. The reads pin this index with `indexed by`:
+	// the production database has no sqlite_stat1, and left alone the planner
+	// satisfies the GROUP BY with idx_usage_events_request_id, which misses
+	// failed and looks up every wide row. Measured on a 986k-row 18GB
+	// usage.sqlite: 62s per 24h window uncovered vs 0.04s covered; the full
+	// 45-day window costs 0.35s (overview) / 0.56s (hour timeline) including
+	// the temp B-tree over 886k request_ids.
+	{"idx_usage_events_request_outcome", "usage_events", `create index if not exists idx_usage_events_request_outcome
+		on usage_events(timestamp_ms, request_id, failed)`},
 	{"idx_usage_monitoring_header_latest_timestamp", usageMonitoringHeaderLatestTable, `create index if not exists idx_usage_monitoring_header_latest_timestamp on usage_monitoring_header_latest_v1(timestamp_ms desc, event_id desc)`},
 	{"idx_usage_event_identity_ledger_raw_event_id", usageEventIdentityLedger, `create index if not exists idx_usage_event_identity_ledger_raw_event_id on usage_event_identity_ledger(raw_event_id)`},
 	{"idx_usage_event_identity_ledger_bucket", usageEventIdentityLedger, `create index if not exists idx_usage_event_identity_ledger_bucket on usage_event_identity_ledger(bucket_ms)`},

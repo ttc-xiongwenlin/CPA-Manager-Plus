@@ -53,6 +53,7 @@ const summaryDelta: UsageSummaryDelta = {
 const timelinePoint = (overrides: Partial<UsageTimelinePoint> = {}): UsageTimelinePoint => ({
   bucketMs: 1,
   bucketEndMs: 2,
+  businessFailureRate: null,
   label: '10:00',
   requestCount: 10,
   totalTokens: 1000,
@@ -112,6 +113,59 @@ describe('usageAnalyticsPresentation', () => {
     expect(cards[4].meta).toContain('usage_analytics.metric_reasoning_tokens');
     expect(cards[7].meta).toContain('usage_analytics.cache_read_rate');
     expect(cards[7]).toMatchObject({ value: '8.0K', valueTitle: '8,000' });
+  });
+
+  it('inserts the business error rate card beside the failure card when available', () => {
+    const cards = buildUsageOverviewSummaryCards({
+      anomalyCount: 3,
+      businessOutcome: {
+        requests: 200,
+        failures: 2,
+        errorRate: 0.01,
+        rescuedRequests: 6,
+        retryRescueRate: 0.75,
+        failureRateByBucketMs: new Map(),
+      },
+      locale: 'en',
+      reasoningTokens: 1200,
+      summary,
+      summaryDelta,
+      t,
+    });
+
+    expect(cards.map((card) => card.label)).toEqual([
+      'usage_analytics.metric_request_count',
+      'usage_analytics.success_rate',
+      'usage_analytics.metric_failure_count',
+      'usage_analytics.business_error_rate',
+      'usage_analytics.metric_estimated_cost',
+      'usage_analytics.metric_total_tokens',
+      'usage_analytics.metric_input_tokens',
+      'usage_analytics.metric_output_tokens',
+      'usage_analytics.metric_cached_tokens',
+    ]);
+    expect(cards[3]).toMatchObject({
+      accent: 'teal',
+      icon: 'trend',
+      tone: 'good',
+      value: '1.0%',
+      valueTitle: '2 / 200',
+    });
+    expect(cards[3].meta).toBe('usage_analytics.retry_rescue_rate 75.0%');
+  });
+
+  it('omits the business error rate card while the fold is unavailable', () => {
+    const cards = buildUsageOverviewSummaryCards({
+      anomalyCount: 3,
+      businessOutcome: null,
+      locale: 'en',
+      reasoningTokens: 1200,
+      summary,
+      summaryDelta,
+      t,
+    });
+
+    expect(cards.map((card) => card.label)).not.toContain('usage_analytics.business_error_rate');
   });
 
   it('shows fine-grained cache buckets in credential detail cache totals', () => {

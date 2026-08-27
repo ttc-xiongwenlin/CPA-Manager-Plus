@@ -78,6 +78,7 @@ const clickHostButton = (button: ReactTestInstance) => {
 const createTimelinePoint = (overrides: Partial<UsageTimelinePoint> = {}): UsageTimelinePoint => ({
   bucketMs: 1_780_000_000_000,
   bucketEndMs: 1_780_003_600_000,
+  businessFailureRate: null,
   label: '06/04 12:00',
   requestCount: 12,
   totalTokens: 1200,
@@ -196,6 +197,7 @@ const createUsageState = (overrides: Record<string, unknown> = {}) => {
     unavailableReason: '',
     lastRefreshedAt: null,
     refresh: vi.fn(),
+    businessOutcome: null,
     summary: {
       requestCount: 12,
       totalTokens: 1200,
@@ -520,6 +522,25 @@ describe('UsageAnalyticsPage', () => {
     expect(text).not.toContain('usage_analytics.favorite_views_title');
     expect(text).not.toContain('usage_analytics.recent_views_title');
     expect(text).not.toContain('usage_analytics.model_rank_title');
+  });
+
+  it('shows the business error rate card only when the request-folded outcome exists', () => {
+    const withoutOutcome = getText(renderPage().root);
+    expect(withoutOutcome).not.toContain('usage_analytics.business_error_rate');
+
+    mocks.usageState = createUsageState({
+      businessOutcome: {
+        requests: 200,
+        failures: 2,
+        errorRate: 0.01,
+        rescuedRequests: 6,
+        retryRescueRate: 0.75,
+        failureRateByBucketMs: new Map([[1_780_000_000_000, 0.01]]),
+      },
+    });
+    const text = getText(renderPage().root);
+    expect(text).toContain('usage_analytics.business_error_rate');
+    expect(text).toContain('usage_analytics.retry_rescue_rate');
   });
 
   it('renders trends as a focused time-series workspace', () => {

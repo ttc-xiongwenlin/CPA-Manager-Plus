@@ -7,6 +7,7 @@ import {
   USAGE_MODEL_LONG_TAIL_SHARE,
   USAGE_MODEL_TOP_SHARE_THRESHOLD,
   USAGE_SUCCESS_RATE_WATCH_THRESHOLD,
+  type UsageBusinessOutcome,
   type UsageRankRow,
   type UsageSummaryDelta,
   type UsageSummaryMetrics,
@@ -53,6 +54,7 @@ type CommonSummaryContext = {
 
 type OverviewSummaryCardsInput = CommonSummaryContext & {
   anomalyCount: number;
+  businessOutcome?: UsageBusinessOutcome | null;
   reasoningTokens: number;
   summary: UsageSummaryMetrics;
   summaryDelta: UsageSummaryDelta;
@@ -160,6 +162,7 @@ const deltaMeta = (
 
 export const buildUsageOverviewSummaryCards = ({
   anomalyCount,
+  businessOutcome,
   locale,
   reasoningTokens,
   summary,
@@ -203,6 +206,33 @@ export const buildUsageOverviewSummaryCards = ({
       value: formatMetricValue('requestCount', summary.failureCount),
       valueTitle: formatFullNumber(summary.failureCount, locale),
     },
+    // Request-folded counterpart to the attempt-level failure card: a request
+    // fails only when every upstream retry failed. Absent whenever the server
+    // withheld the fold (scope filter active or covering index missing).
+    ...(businessOutcome
+      ? [
+          {
+            accent: 'teal',
+            fullLabel: t('usage_analytics.business_error_rate'),
+            icon: 'trend',
+            label: t('usage_analytics.business_error_rate'),
+            meta: `${t('usage_analytics.retry_rescue_rate')} ${formatPercent(
+              businessOutcome.retryRescueRate
+            )}`,
+            tone:
+              businessOutcome.errorRate <= 0.05
+                ? 'good'
+                : businessOutcome.errorRate <= 0.15
+                  ? 'warn'
+                  : 'bad',
+            value: formatPercent(businessOutcome.errorRate),
+            valueTitle: `${formatFullNumber(businessOutcome.failures, locale)} / ${formatFullNumber(
+              businessOutcome.requests,
+              locale
+            )}`,
+          } satisfies UsageSummaryCard,
+        ]
+      : []),
     {
       accent: 'amber',
       fullLabel: t('usage_analytics.metric_estimated_cost'),

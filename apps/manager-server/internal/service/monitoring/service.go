@@ -157,6 +157,7 @@ type Include struct {
 	ChannelShare       bool              `json:"channel_share"`
 	ModelStats         bool              `json:"model_stats"`
 	FailureSources     bool              `json:"failure_sources"`
+	BusinessOutcome    bool              `json:"business_outcome"`
 	AccountStats       bool              `json:"account_stats"`
 	CredentialStats    bool              `json:"credential_stats"`
 	CredentialTimeline bool              `json:"credential_timeline"`
@@ -198,6 +199,7 @@ type Response struct {
 	ModelStats         []ModelStat               `json:"model_stats,omitempty"`
 	ChannelShare       []ChannelShareRow         `json:"channel_share,omitempty"`
 	FailureSources     []FailureSourceRow        `json:"failure_sources,omitempty"`
+	BusinessOutcome    *BusinessOutcome          `json:"business_outcome,omitempty"`
 	AccountStats       []AccountStatRow          `json:"account_stats,omitempty"`
 	CredentialStats    []CredentialStatRow       `json:"credential_stats,omitempty"`
 	CredentialTimeline []CredentialTimelinePoint `json:"credential_timeline,omitempty"`
@@ -462,6 +464,32 @@ type HourlyPoint struct {
 	Hour   int   `json:"hour"`
 	Calls  int64 `json:"calls"`
 	Tokens int64 `json:"tokens"`
+}
+
+// BusinessOutcome reports client-visible outcomes with upstream retries
+// folded into their request: a request fails only when every attempt sharing
+// its request_id failed, and counts as rescued when a retry recovered at
+// least one failed attempt. It is only populated for requests whose filter
+// carries nothing beyond the time window — retries hop across accounts and
+// models, so scoped folding would mislead — and while the covering index
+// installed by the offline cleanup-derived command exists.
+type BusinessOutcome struct {
+	Requests        int64                  `json:"requests"`
+	Failures        int64                  `json:"failures"`
+	ErrorRate       float64                `json:"error_rate"`
+	RescuedRequests int64                  `json:"rescued_requests"`
+	RetryRescueRate float64                `json:"retry_rescue_rate"`
+	Timeline        []BusinessOutcomePoint `json:"timeline,omitempty"`
+}
+
+// BusinessOutcomePoint buckets business requests by the hour (or local day)
+// of each request's first attempt.
+type BusinessOutcomePoint struct {
+	BucketMS        int64   `json:"bucket_ms"`
+	Requests        int64   `json:"requests"`
+	Failures        int64   `json:"failures"`
+	RescuedRequests int64   `json:"rescued_requests"`
+	FailureRate     float64 `json:"failure_rate"`
 }
 
 type HeatmapPoint struct {
@@ -1009,6 +1037,20 @@ func (s *Service) analytics(ctx context.Context, req Request) (Response, error) 
 		})
 	}
 
+	var businessOutcomeRows []store.BusinessOutcomeHourRow
+	businessOutcomeAvailable := false
+	if req.Include.BusinessOutcome {
+		queries.Go(func(queryCtx context.Context) error {
+			rows, available, queryErr := s.store.BusinessOutcomeTimelineWithFilter(queryCtx, filter)
+			if queryErr != nil {
+				return queryErr
+			}
+			businessOutcomeRows = rows
+			businessOutcomeAvailable = available
+			return nil
+		})
+	}
+
 	if req.Include.AccountStats {
 		queries.Go(func(queryCtx context.Context) error {
 			var queryErr error
@@ -1277,6 +1319,9 @@ func (s *Service) analytics(ctx context.Context, req Request) (Response, error) 
 	}
 	if req.Include.FailureSources {
 		response.FailureSources = buildFailureSources(failureSourceStats)
+	}
+	if req.Include.BusinessOutcome && businessOutcomeAvailable {
+		response.BusinessOutcome = buildBusinessOutcome(businessOutcomeRows, granularity, location, req.FromMS, req.ToMS)
 	}
 	if req.Include.AccountStats {
 		response.AccountStats = buildAccountStats(accountStats, prices)
@@ -2648,6 +2693,63 @@ func buildFailureSources(stats []store.FailureSourceStat) []FailureSourceRow {
 		})
 	}
 	return result
+}
+
+const businessOutcomeHourMS = int64(3600000)
+
+// buildBusinessOutcome sums the hourly fold rows into the window KPIs and
+// remaps the UTC hour buckets onto the requested local granularity. The
+// remap is only exact while every UTC hour lands inside a single local
+// bucket (matching the projection timeline reader); otherwise the KPIs
+// stand alone and the per-bucket series is omitted.
+func buildBusinessOutcome(rows []store.BusinessOutcomeHourRow, granularity string, location *time.Location, fromMS, toMS int64) *BusinessOutcome {
+	if granularity != "day" {
+		granularity = "hour"
+	}
+	if location == nil {
+		location = time.UTC
+	}
+	floorFrom := fromMS - fromMS%businessOutcomeHourMS
+	ceilTo := toMS
+	if remainder := toMS % businessOutcomeHourMS; remainder != 0 {
+		ceilTo = toMS - remainder + businessOutcomeHourMS
+	}
+	mappable := usage.CanMapUTCWholeHours(floorFrom, ceilTo, granularity, location)
+
+	outcome := &BusinessOutcome{}
+	grouped := make(map[int64]*BusinessOutcomePoint, len(rows))
+	order := make([]int64, 0, len(rows))
+	for _, row := range rows {
+		outcome.Requests += row.Requests
+		outcome.Failures += row.Failures
+		outcome.RescuedRequests += row.RescuedRequests
+		if !mappable {
+			continue
+		}
+		bucketMS := usage.AnalyticsBucketMS(row.BucketMS, granularity, location)
+		point := grouped[bucketMS]
+		if point == nil {
+			point = &BusinessOutcomePoint{BucketMS: bucketMS}
+			grouped[bucketMS] = point
+			order = append(order, bucketMS)
+		}
+		point.Requests += row.Requests
+		point.Failures += row.Failures
+		point.RescuedRequests += row.RescuedRequests
+	}
+	outcome.ErrorRate = ratio(outcome.Failures, outcome.Requests)
+	// Rescue rate grades only the requests that saw at least one upstream
+	// failure: the share a retry brought back to success.
+	outcome.RetryRescueRate = ratio(outcome.RescuedRequests, outcome.RescuedRequests+outcome.Failures)
+	if mappable {
+		outcome.Timeline = make([]BusinessOutcomePoint, 0, len(order))
+		for _, bucketMS := range order {
+			point := grouped[bucketMS]
+			point.FailureRate = ratio(point.Failures, point.Requests)
+			outcome.Timeline = append(outcome.Timeline, *point)
+		}
+	}
+	return outcome
 }
 
 type accountStatAccumulator struct {
