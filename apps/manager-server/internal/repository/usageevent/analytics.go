@@ -1552,22 +1552,60 @@ from (
 group by bucket_ms
 order by bucket_ms`
 
-// BusinessOutcomeSupportsFilter reports whether the filter carries nothing
-// beyond the time window. Retries hop across accounts, credentials and
-// models, so folding attempts by request_id under any scope filter would
-// grade fold groups whose other attempts the filter excluded; the business
-// outcome metrics stay global-only.
+// businessOutcomeScopedTimelineSQL is the coverage-checked variant used when
+// the filter carries fold-safe scope. The outer fold scans the FULL time
+// window with no scope so every request keeps its true attempt count n_all;
+// the %s placeholder receives the analyticsWhere clause (same FromMS/ToMS
+// plus the scope conditions), and n_in counts the attempts that clause
+// matches. The window equality matters: probing a wider or narrower window
+// than the fold would count boundary attempts into n_all but never into
+// n_in, misjudging complete requests as split. Requests with n_in = 0 are
+// out of scope entirely; n_in < n_all means the scope splits the request
+// (a retry hopped outside the filter), reported per bucket as excluded so
+// the caller can apply businessOutcomeMaxExcludedShare. Both scans stay on
+// covering indexes: the probe runs once as a materialized LIST SUBQUERY over
+// idx_usage_events_latency_scope_v2 (measured 0.3s per 7d window vs 4.4s
+// for the per-row wide-lookup formulation).
+const businessOutcomeScopedTimelineSQL = `select
+	first_ts / 3600000 * 3600000 as bucket_ms,
+	coalesce(sum(case when n_in = n_all then 1 else 0 end), 0),
+	coalesce(sum(case when n_in = n_all then all_failed else 0 end), 0),
+	coalesce(sum(case when n_in = n_all then any_failed - all_failed else 0 end), 0),
+	coalesce(sum(case when n_in < n_all then 1 else 0 end), 0)
+from (
+	select
+		min(e.timestamp_ms) as first_ts,
+		min(e.failed) as all_failed,
+		max(e.failed) as any_failed,
+		count(*) as n_all,
+		sum(e.id in (select id from usage_events indexed by idx_usage_events_latency_scope_v2 %s)) as n_in
+	from usage_events e indexed by ` + businessOutcomeIndexName + `
+	where e.timestamp_ms >= ? and e.timestamp_ms < ?
+	group by coalesce(nullif(e.request_id, ''), 'event:' || e.id)
+)
+where n_in > 0
+group by bucket_ms
+order by bucket_ms`
+
+// BusinessOutcomeSupportsFilter reports whether the fold can answer this
+// filter at all. Scope dimensions (model, bucket auth indices, key, source)
+// are allowed: a runtime coverage check folds every request over the full
+// time window and keeps only requests whose attempts the filter covers
+// completely, so scoped folds stay truthful without the backend knowing
+// about bucket mappings. Two groups must still refuse:
+//
+//   - Attempt-visibility conditions (failed-only, min latency, cache status,
+//     include_failed=false) hide individual attempts, which corrupts the
+//     per-request attempt count the coverage check compares against.
+//   - Dimensions absent from idx_usage_events_latency_scope_v2 (provider,
+//     account snapshot, credential id, project, request type, headers, full
+//     text search) would drop the coverage probe off its covering index into
+//     wide-row lookups (measured 4.4s vs 0.3s per 7d window).
 func BusinessOutcomeSupportsFilter(filter AnalyticsFilter) bool {
 	return strings.TrimSpace(filter.SearchQuery) == "" &&
-		strings.TrimSpace(filter.SearchAPIKeyHash) == "" &&
-		len(filter.Models) == 0 &&
 		len(filter.Providers) == 0 &&
 		len(filter.Accounts) == 0 &&
 		len(filter.CredentialIDs) == 0 &&
-		len(filter.AuthFiles) == 0 &&
-		len(filter.AuthIndices) == 0 &&
-		len(filter.APIKeyHashes) == 0 &&
-		len(filter.SourceHashes) == 0 &&
 		len(filter.ProjectIDs) == 0 &&
 		len(filter.RequestTypes) == 0 &&
 		len(filter.HeaderErrorKinds) == 0 &&
@@ -1580,12 +1618,38 @@ func BusinessOutcomeSupportsFilter(filter AnalyticsFilter) bool {
 		strings.TrimSpace(filter.CacheStatus) == ""
 }
 
+// businessOutcomeHasScope reports whether the filter carries any of the
+// fold-safe scope dimensions, i.e. whether the coverage-checked query is
+// needed instead of the plain full-window fold.
+func businessOutcomeHasScope(filter AnalyticsFilter) bool {
+	return strings.TrimSpace(filter.SearchAPIKeyHash) != "" ||
+		len(filter.Models) > 0 ||
+		len(filter.AuthFiles) > 0 ||
+		len(filter.AuthIndices) > 0 ||
+		len(filter.APIKeyHashes) > 0 ||
+		len(filter.SourceHashes) > 0
+}
+
+// businessOutcomeMaxExcludedShare is the ceiling on the share of in-scope
+// requests the coverage check may discard before the fold hides itself.
+// Measured on production (24h, 289 retried requests): filtering by codex
+// bucket or by model splits zero requests across the boundary, while
+// filtering by a single auth_index splits 36%. The gap is wide, so 5%
+// separates the two cases cleanly while tolerating the odd cross-bucket
+// retry without blanking a whole bucket's data.
+const businessOutcomeMaxExcludedShare = 0.05
+
 // BusinessOutcomeTimelineWithFilter folds upstream attempts into client
-// requests by request_id and reports hourly outcome totals. It returns
-// available=false without error when the filter carries scope beyond the
-// time window (see BusinessOutcomeSupportsFilter) or while the covering
-// index is missing: the index ships through the offline cleanup-derived
-// command, so a freshly deployed server may serve requests before it exists.
+// requests by request_id and reports hourly outcome totals. Fold-safe scope
+// filters (model, auth indices, key, source) run through a coverage check
+// that keeps only requests whose attempts the filter covers completely and
+// hides the fold when the excluded share crosses
+// businessOutcomeMaxExcludedShare. It returns available=false without error
+// when the filter carries unsupported conditions (see
+// BusinessOutcomeSupportsFilter), when the coverage threshold trips, or
+// while the covering index is missing: the index ships through the offline
+// cleanup-derived command, so a freshly deployed server may serve requests
+// before it exists.
 func (r *repository) BusinessOutcomeTimelineWithFilter(ctx context.Context, filter AnalyticsFilter) ([]BusinessOutcomeHourRow, bool, error) {
 	if !BusinessOutcomeSupportsFilter(filter) {
 		return nil, false, nil
@@ -1599,22 +1663,58 @@ func (r *repository) BusinessOutcomeTimelineWithFilter(ctx context.Context, filt
 	if indexCount == 0 {
 		return nil, false, nil
 	}
-	rows, err := r.db.QueryContext(ctx, businessOutcomeTimelineSQL, filter.FromMS, filter.ToMS)
+	if !businessOutcomeHasScope(filter) {
+		rows, err := r.db.QueryContext(ctx, businessOutcomeTimelineSQL, filter.FromMS, filter.ToMS)
+		if err != nil {
+			return nil, false, err
+		}
+		defer rows.Close()
+
+		hourRows := make([]BusinessOutcomeHourRow, 0)
+		for rows.Next() {
+			var row BusinessOutcomeHourRow
+			if err := rows.Scan(&row.BucketMS, &row.Requests, &row.Failures, &row.RescuedRequests); err != nil {
+				return nil, false, err
+			}
+			hourRows = append(hourRows, row)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, false, err
+		}
+		return hourRows, true, nil
+	}
+
+	// The coverage probe reuses analyticsWhere so its conditions (and its
+	// FromMS/ToMS window) match the scoped analytics reads exactly; its
+	// placeholders bind first because the probe appears in the select list.
+	where, whereArgs := analyticsWhere(filter)
+	args := append(whereArgs, filter.FromMS, filter.ToMS)
+	rows, err := r.db.QueryContext(ctx, fmt.Sprintf(businessOutcomeScopedTimelineSQL, where), args...)
 	if err != nil {
 		return nil, false, err
 	}
 	defer rows.Close()
 
 	hourRows := make([]BusinessOutcomeHourRow, 0)
+	var includedTotal, excludedTotal int64
 	for rows.Next() {
 		var row BusinessOutcomeHourRow
-		if err := rows.Scan(&row.BucketMS, &row.Requests, &row.Failures, &row.RescuedRequests); err != nil {
+		var excluded int64
+		if err := rows.Scan(&row.BucketMS, &row.Requests, &row.Failures, &row.RescuedRequests, &excluded); err != nil {
 			return nil, false, err
 		}
-		hourRows = append(hourRows, row)
+		includedTotal += row.Requests
+		excludedTotal += excluded
+		if row.Requests > 0 {
+			hourRows = append(hourRows, row)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, false, err
+	}
+	if inScope := includedTotal + excludedTotal; inScope > 0 &&
+		float64(excludedTotal) > businessOutcomeMaxExcludedShare*float64(inScope) {
+		return nil, false, nil
 	}
 	return hourRows, true, nil
 }

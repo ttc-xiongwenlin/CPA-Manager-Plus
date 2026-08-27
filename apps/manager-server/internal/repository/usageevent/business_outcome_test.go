@@ -2,6 +2,7 @@ package usageevent
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -110,12 +111,17 @@ func TestBusinessOutcomeTimelineRejectsScopedFilters(t *testing.T) {
 	}
 	repo := New(db)
 	scoped := []AnalyticsFilter{
-		{FromMS: 0, ToMS: 1, IncludeFailed: true, Models: []string{"claude-sonnet"}},
-		{FromMS: 0, ToMS: 1, IncludeFailed: true, AuthIndices: []string{"auth-1"}},
-		{FromMS: 0, ToMS: 1, IncludeFailed: true, APIKeyHashes: []string{"hash"}},
-		{FromMS: 0, ToMS: 1, IncludeFailed: true, SearchQuery: "query"},
+		// Attempt-visibility conditions corrupt the coverage check's
+		// per-request attempt counts.
 		{FromMS: 0, ToMS: 1, IncludeFailed: true, FailedOnly: true},
 		{FromMS: 0, ToMS: 1, IncludeFailed: false},
+		{FromMS: 0, ToMS: 1, IncludeFailed: true, MinLatencyMS: 100},
+		{FromMS: 0, ToMS: 1, IncludeFailed: true, CacheStatus: "hit"},
+		// Dimensions the latency scope index does not cover.
+		{FromMS: 0, ToMS: 1, IncludeFailed: true, SearchQuery: "query"},
+		{FromMS: 0, ToMS: 1, IncludeFailed: true, Providers: []string{"codex"}},
+		{FromMS: 0, ToMS: 1, IncludeFailed: true, Accounts: []string{"user@example.com"}},
+		{FromMS: 0, ToMS: 1, IncludeFailed: true, CredentialIDs: []string{"auth.json"}},
 	}
 	for _, filter := range scoped {
 		_, available, err := repo.BusinessOutcomeTimelineWithFilter(context.Background(), filter)
@@ -125,6 +131,173 @@ func TestBusinessOutcomeTimelineRejectsScopedFilters(t *testing.T) {
 		if available {
 			t.Fatalf("business outcome available for scoped filter %#v, want unavailable", filter)
 		}
+	}
+}
+
+func businessOutcomeScopedEvent(hash, requestID string, timestampMS int64, authIndex, model string, failed bool) usage.Event {
+	event := businessOutcomeEvent(hash, requestID, timestampMS, failed)
+	event.AuthIndex = authIndex
+	event.Model = model
+	return event
+}
+
+func openBusinessOutcomeRepo(t *testing.T) Repository {
+	t.Helper()
+	db, err := sqliterepo.Open(filepath.Join(t.TempDir(), "usage.sqlite"))
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := sqliterepo.RunDerivedStartupMaintenance(context.Background(), db); err != nil {
+		t.Fatalf("prepare post-listen indexes: %v", err)
+	}
+	return New(db)
+}
+
+func TestBusinessOutcomeScopedFilterKeepsFullyCoveredRequests(t *testing.T) {
+	repo := openBusinessOutcomeRepo(t)
+	ctx := context.Background()
+	hourA := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
+	if _, err := repo.InsertBatch(ctx, []usage.Event{
+		// Retry hops auth-1 -> auth-2 but stays inside the bucket: rescued.
+		businessOutcomeScopedEvent("cov-b1-a1", "b1", hourA+10_000, "auth-1", "gpt-x", true),
+		businessOutcomeScopedEvent("cov-b1-a2", "b1", hourA+20_000, "auth-2", "gpt-x", false),
+		// Single attempt inside the bucket.
+		businessOutcomeScopedEvent("cov-b2-a1", "b2", hourA+30_000, "auth-1", "gpt-x", false),
+		// Both attempts failed inside the bucket: business failure.
+		businessOutcomeScopedEvent("cov-b3-a1", "b3", hourA+40_000, "auth-2", "gpt-x", true),
+		businessOutcomeScopedEvent("cov-b3-a2", "b3", hourA+50_000, "auth-2", "gpt-x", true),
+		// Entirely outside the bucket: out of scope, not excluded.
+		businessOutcomeScopedEvent("cov-x1-a1", "x1", hourA+60_000, "auth-3", "gpt-x", false),
+	}); err != nil {
+		t.Fatalf("insert events: %v", err)
+	}
+
+	filter := businessOutcomeTimeFilter(hourA, hourA+3_600_000)
+	filter.AuthIndices = []string{"auth-1", "auth-2"}
+	rows, available, err := repo.BusinessOutcomeTimelineWithFilter(ctx, filter)
+	if err != nil {
+		t.Fatalf("bucket-scoped business outcome: %v", err)
+	}
+	if !available {
+		t.Fatalf("bucket-scoped business outcome unavailable, want available")
+	}
+	if len(rows) != 1 || rows[0].Requests != 3 || rows[0].Failures != 1 || rows[0].RescuedRequests != 1 {
+		t.Fatalf("bucket-scoped rows = %#v, want 1 bucket with requests=3 failures=1 rescued=1", rows)
+	}
+
+	// A single-account filter splits b1 (1 of 2 attempts): excluded share
+	// 1/2 crosses the 5%% ceiling, so the fold hides itself.
+	single := businessOutcomeTimeFilter(hourA, hourA+3_600_000)
+	single.AuthIndices = []string{"auth-1"}
+	_, available, err = repo.BusinessOutcomeTimelineWithFilter(ctx, single)
+	if err != nil {
+		t.Fatalf("single-account business outcome: %v", err)
+	}
+	if available {
+		t.Fatalf("single-account business outcome available, want hidden (split coverage)")
+	}
+}
+
+func TestBusinessOutcomeScopedFilterByModel(t *testing.T) {
+	repo := openBusinessOutcomeRepo(t)
+	ctx := context.Background()
+	hourA := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
+	if _, err := repo.InsertBatch(ctx, []usage.Event{
+		// Retry hops accounts but keeps the model: fully covered, rescued.
+		businessOutcomeScopedEvent("covm-m1-a1", "m1", hourA+10_000, "auth-1", "gpt-5.5", true),
+		businessOutcomeScopedEvent("covm-m1-a2", "m1", hourA+20_000, "auth-2", "gpt-5.5", false),
+		// Different model: out of scope.
+		businessOutcomeScopedEvent("covm-m2-a1", "m2", hourA+30_000, "auth-1", "gpt-5.4", false),
+	}); err != nil {
+		t.Fatalf("insert events: %v", err)
+	}
+
+	filter := businessOutcomeTimeFilter(hourA, hourA+3_600_000)
+	filter.Models = []string{"gpt-5.5"}
+	rows, available, err := repo.BusinessOutcomeTimelineWithFilter(ctx, filter)
+	if err != nil {
+		t.Fatalf("model-scoped business outcome: %v", err)
+	}
+	if !available {
+		t.Fatalf("model-scoped business outcome unavailable, want available")
+	}
+	if len(rows) != 1 || rows[0].Requests != 1 || rows[0].Failures != 0 || rows[0].RescuedRequests != 1 {
+		t.Fatalf("model-scoped rows = %#v, want 1 bucket with requests=1 rescued=1", rows)
+	}
+}
+
+func TestBusinessOutcomeCoverageProbeSharesTheFoldWindow(t *testing.T) {
+	repo := openBusinessOutcomeRepo(t)
+	ctx := context.Background()
+	hourA := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
+	if _, err := repo.InsertBatch(ctx, []usage.Event{
+		// Failed attempt just before the window: both the fold and the probe
+		// must ignore it, or the in-window request below would be misjudged
+		// as split (n_all counting the boundary attempt that n_in never can).
+		businessOutcomeScopedEvent("covw-w1-a0", "w1", hourA-5_000, "auth-1", "gpt-x", true),
+		businessOutcomeScopedEvent("covw-w1-a1", "w1", hourA+5_000, "auth-1", "gpt-x", false),
+	}); err != nil {
+		t.Fatalf("insert events: %v", err)
+	}
+
+	filter := businessOutcomeTimeFilter(hourA, hourA+3_600_000)
+	filter.AuthIndices = []string{"auth-1"}
+	rows, available, err := repo.BusinessOutcomeTimelineWithFilter(ctx, filter)
+	if err != nil {
+		t.Fatalf("windowed business outcome: %v", err)
+	}
+	if !available {
+		t.Fatalf("windowed business outcome unavailable, want available (probe must share the fold window)")
+	}
+	if len(rows) != 1 || rows[0].Requests != 1 || rows[0].Failures != 0 || rows[0].RescuedRequests != 0 {
+		t.Fatalf("windowed rows = %#v, want the in-window slice only (requests=1, no failure, no rescue)", rows)
+	}
+}
+
+func TestBusinessOutcomeExcludedShareThreshold(t *testing.T) {
+	repo := openBusinessOutcomeRepo(t)
+	ctx := context.Background()
+	hourA := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
+	// One split request (attempts on auth-1 and auth-2) plus 19 covered
+	// single-attempt requests on auth-1: excluded share 1/20 = 5%, exactly
+	// at the ceiling, stays visible.
+	events := []usage.Event{
+		businessOutcomeScopedEvent("thr-s-a1", "split", hourA+1_000, "auth-1", "gpt-x", true),
+		businessOutcomeScopedEvent("thr-s-a2", "split", hourA+2_000, "auth-2", "gpt-x", false),
+	}
+	for i := 0; i < 19; i++ {
+		events = append(events, businessOutcomeScopedEvent(
+			fmt.Sprintf("thr-c%d", i), fmt.Sprintf("cov-%d", i), hourA+10_000+int64(i)*1_000, "auth-1", "gpt-x", false))
+	}
+	if _, err := repo.InsertBatch(ctx, events); err != nil {
+		t.Fatalf("insert events: %v", err)
+	}
+
+	filter := businessOutcomeTimeFilter(hourA, hourA+3_600_000)
+	filter.AuthIndices = []string{"auth-1"}
+	rows, available, err := repo.BusinessOutcomeTimelineWithFilter(ctx, filter)
+	if err != nil {
+		t.Fatalf("threshold business outcome (5%%): %v", err)
+	}
+	if !available {
+		t.Fatalf("excluded share exactly at the ceiling should stay available")
+	}
+	// The split request is dropped from the fold, not counted as failed.
+	if len(rows) != 1 || rows[0].Requests != 19 || rows[0].Failures != 0 {
+		t.Fatalf("threshold rows = %#v, want 19 covered requests and no failures", rows)
+	}
+
+	// Shrink the window to 18 covered + 1 split: 1/19 = 5.26%% crosses the
+	// ceiling and hides the fold.
+	narrow := businessOutcomeTimeFilter(hourA, hourA+28_000)
+	narrow.AuthIndices = []string{"auth-1"}
+	_, available, err = repo.BusinessOutcomeTimelineWithFilter(ctx, narrow)
+	if err != nil {
+		t.Fatalf("threshold business outcome (5.26%%): %v", err)
+	}
+	if available {
+		t.Fatalf("excluded share above the ceiling should hide the fold")
 	}
 }
 
@@ -162,5 +335,53 @@ func TestBusinessOutcomeQueryUsesCoveringIndex(t *testing.T) {
 	}
 	if !usesCoveringIndex || usesRequestIDIndex {
 		t.Fatalf("business outcome query is not pinned to the covering index: %v", details)
+	}
+}
+
+func TestBusinessOutcomeScopedQueryStaysOnCoveringIndexes(t *testing.T) {
+	db, err := sqliterepo.Open(filepath.Join(t.TempDir(), "usage.sqlite"))
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := sqliterepo.RunDerivedStartupMaintenance(context.Background(), db); err != nil {
+		t.Fatalf("prepare post-listen indexes: %v", err)
+	}
+
+	filter := businessOutcomeTimeFilter(1_000, 2_000)
+	filter.AuthIndices = []string{"auth-1", "auth-2"}
+	where, whereArgs := analyticsWhere(filter)
+	args := append(whereArgs, filter.FromMS, filter.ToMS)
+	rows, err := db.Query(`explain query plan `+fmt.Sprintf(businessOutcomeScopedTimelineSQL, where), args...)
+	if err != nil {
+		t.Fatalf("explain scoped business outcome query: %v", err)
+	}
+	defer rows.Close()
+
+	details := make([]string, 0, 8)
+	coversFold := false
+	coversProbe := false
+	rowLookup := false
+	for rows.Next() {
+		var id, parent, notUsed int
+		var detail string
+		if err := rows.Scan(&id, &parent, &notUsed, &detail); err != nil {
+			t.Fatalf("scan query plan: %v", err)
+		}
+		details = append(details, detail)
+		coversFold = coversFold || strings.Contains(detail, "COVERING INDEX "+businessOutcomeIndexName)
+		coversProbe = coversProbe || strings.Contains(detail, "COVERING INDEX idx_usage_events_latency_scope_v2")
+		// A plain "USING INDEX" (without COVERING) or a table scan means the
+		// query fell back to wide-row lookups: measured 4.4s vs 0.3s per 7d
+		// window on production.
+		rowLookup = rowLookup ||
+			(strings.Contains(detail, " USING INDEX ") && !strings.Contains(detail, "COVERING")) ||
+			strings.Contains(detail, "SCAN usage_events")
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("query plan rows: %v", err)
+	}
+	if !coversFold || !coversProbe || rowLookup {
+		t.Fatalf("scoped business outcome query left its covering indexes: %v", details)
 	}
 }

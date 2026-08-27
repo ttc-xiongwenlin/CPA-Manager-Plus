@@ -3473,7 +3473,8 @@ func TestAnalyticsBusinessOutcomeFoldsRetries(t *testing.T) {
 		t.Fatalf("business bucket B = %#v", outcome.Timeline[1])
 	}
 
-	// Retries hop across accounts, so any scope filter disables the fold.
+	// The retries above hop auth-1 -> auth-2, so a single-account filter
+	// splits 2 of 3 requests: the coverage check hides the fold.
 	scoped, err := New(db).Analytics(ctx, Request{
 		FromMS:  hourA,
 		ToMS:    toMS,
