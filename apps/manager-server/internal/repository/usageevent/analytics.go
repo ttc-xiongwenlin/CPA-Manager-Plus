@@ -1561,8 +1561,9 @@ order by bucket_ms`
 // than the fold would count boundary attempts into n_all but never into
 // n_in, misjudging complete requests as split. Requests with n_in = 0 are
 // out of scope entirely; n_in < n_all means the scope splits the request
-// (a retry hopped outside the filter), reported per bucket as excluded so
-// the caller can apply businessOutcomeMaxExcludedShare. Both scans stay on
+// (a retry hopped outside the filter). Each bucket reports its excluded
+// (split) and retried (n_all > 1) request counts so the caller can apply
+// businessOutcomeMaxExcludedShare over retried requests. Both scans stay on
 // covering indexes: the probe runs once as a materialized LIST SUBQUERY over
 // idx_usage_events_latency_scope_v2 (measured 0.3s per 7d window vs 4.4s
 // for the per-row wide-lookup formulation).
@@ -1571,7 +1572,8 @@ const businessOutcomeScopedTimelineSQL = `select
 	coalesce(sum(case when n_in = n_all then 1 else 0 end), 0),
 	coalesce(sum(case when n_in = n_all then all_failed else 0 end), 0),
 	coalesce(sum(case when n_in = n_all then any_failed - all_failed else 0 end), 0),
-	coalesce(sum(case when n_in < n_all then 1 else 0 end), 0)
+	coalesce(sum(case when n_in < n_all then 1 else 0 end), 0),
+	coalesce(sum(case when n_all > 1 then 1 else 0 end), 0)
 from (
 	select
 		min(e.timestamp_ms) as first_ts,
@@ -1631,12 +1633,18 @@ func businessOutcomeHasScope(filter AnalyticsFilter) bool {
 }
 
 // businessOutcomeMaxExcludedShare is the ceiling on the share of in-scope
-// requests the coverage check may discard before the fold hides itself.
-// Measured on production (24h, 289 retried requests): filtering by codex
-// bucket or by model splits zero requests across the boundary, while
-// filtering by a single auth_index splits 36%. The gap is wide, so 5%
-// separates the two cases cleanly while tolerating the odd cross-bucket
-// retry without blanking a whole bucket's data.
+// RETRIED requests (n_in > 0 and n_all > 1) the coverage check may discard
+// before the fold hides itself. The denominator must be retried requests,
+// not all in-scope requests: single-attempt requests can never be split, so
+// they dilute the ratio until it never trips. Measured on production
+// (single auth_index, 20h window): 330 in-scope requests, 3 retried, all 3
+// split across accounts — 3/330 = 0.91% would stay visible and report
+// rescued=0 as if the account was never rescued, while 3/3 = 100% correctly
+// hides the fold. Bucket and model filters split zero of their retried
+// requests (0/289 measured), so 5% still separates the two cases cleanly
+// while tolerating the odd cross-bucket retry without blanking a whole
+// bucket's data. Zero retried requests in scope means zero split risk: the
+// fold stays visible.
 const businessOutcomeMaxExcludedShare = 0.05
 
 // BusinessOutcomeTimelineWithFilter folds upstream attempts into client
@@ -1696,15 +1704,15 @@ func (r *repository) BusinessOutcomeTimelineWithFilter(ctx context.Context, filt
 	defer rows.Close()
 
 	hourRows := make([]BusinessOutcomeHourRow, 0)
-	var includedTotal, excludedTotal int64
+	var excludedTotal, retriedTotal int64
 	for rows.Next() {
 		var row BusinessOutcomeHourRow
-		var excluded int64
-		if err := rows.Scan(&row.BucketMS, &row.Requests, &row.Failures, &row.RescuedRequests, &excluded); err != nil {
+		var excluded, retried int64
+		if err := rows.Scan(&row.BucketMS, &row.Requests, &row.Failures, &row.RescuedRequests, &excluded, &retried); err != nil {
 			return nil, false, err
 		}
-		includedTotal += row.Requests
 		excludedTotal += excluded
+		retriedTotal += retried
 		if row.Requests > 0 {
 			hourRows = append(hourRows, row)
 		}
@@ -1712,8 +1720,10 @@ func (r *repository) BusinessOutcomeTimelineWithFilter(ctx context.Context, filt
 	if err := rows.Err(); err != nil {
 		return nil, false, err
 	}
-	if inScope := includedTotal + excludedTotal; inScope > 0 &&
-		float64(excludedTotal) > businessOutcomeMaxExcludedShare*float64(inScope) {
+	// Excluded requests always have n_all > 1, so retriedTotal already
+	// contains them; zero retried requests means zero split risk.
+	if retriedTotal > 0 &&
+		float64(excludedTotal) > businessOutcomeMaxExcludedShare*float64(retriedTotal) {
 		return nil, false, nil
 	}
 	return hourRows, true, nil

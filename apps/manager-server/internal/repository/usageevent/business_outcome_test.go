@@ -259,16 +259,22 @@ func TestBusinessOutcomeExcludedShareThreshold(t *testing.T) {
 	repo := openBusinessOutcomeRepo(t)
 	ctx := context.Background()
 	hourA := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
-	// One split request (attempts on auth-1 and auth-2) plus 19 covered
-	// single-attempt requests on auth-1: excluded share 1/20 = 5%, exactly
-	// at the ceiling, stays visible.
+	// The threshold denominator counts RETRIED requests only, so the fixture
+	// pins the boundary with retried requests: one split request (attempts
+	// on auth-1 and auth-2) plus 19 covered retried requests (both attempts
+	// on auth-1). Excluded share 1/20 = 5%, exactly at the ceiling, stays
+	// visible. Single-attempt requests must not dilute the ratio (see the
+	// zero-retry and single-account tests below).
 	events := []usage.Event{
 		businessOutcomeScopedEvent("thr-s-a1", "split", hourA+1_000, "auth-1", "gpt-x", true),
 		businessOutcomeScopedEvent("thr-s-a2", "split", hourA+2_000, "auth-2", "gpt-x", false),
 	}
 	for i := 0; i < 19; i++ {
-		events = append(events, businessOutcomeScopedEvent(
-			fmt.Sprintf("thr-c%d", i), fmt.Sprintf("cov-%d", i), hourA+10_000+int64(i)*1_000, "auth-1", "gpt-x", false))
+		base := hourA + 10_000 + int64(i)*2_000
+		requestID := fmt.Sprintf("cov-%d", i)
+		events = append(events,
+			businessOutcomeScopedEvent(fmt.Sprintf("thr-c%d-a1", i), requestID, base, "auth-1", "gpt-x", true),
+			businessOutcomeScopedEvent(fmt.Sprintf("thr-c%d-a2", i), requestID, base+1_000, "auth-1", "gpt-x", false))
 	}
 	if _, err := repo.InsertBatch(ctx, events); err != nil {
 		t.Fatalf("insert events: %v", err)
@@ -284,13 +290,14 @@ func TestBusinessOutcomeExcludedShareThreshold(t *testing.T) {
 		t.Fatalf("excluded share exactly at the ceiling should stay available")
 	}
 	// The split request is dropped from the fold, not counted as failed.
-	if len(rows) != 1 || rows[0].Requests != 19 || rows[0].Failures != 0 {
-		t.Fatalf("threshold rows = %#v, want 19 covered requests and no failures", rows)
+	if len(rows) != 1 || rows[0].Requests != 19 || rows[0].Failures != 0 || rows[0].RescuedRequests != 19 {
+		t.Fatalf("threshold rows = %#v, want 19 covered rescued requests and no failures", rows)
 	}
 
-	// Shrink the window to 18 covered + 1 split: 1/19 = 5.26%% crosses the
-	// ceiling and hides the fold.
-	narrow := businessOutcomeTimeFilter(hourA, hourA+28_000)
+	// Shrink the window to drop the last covered retried request (attempts
+	// at +46s/+47s): 18 covered + 1 split leaves 1/19 = 5.26%, which
+	// crosses the ceiling and hides the fold.
+	narrow := businessOutcomeTimeFilter(hourA, hourA+46_000)
 	narrow.AuthIndices = []string{"auth-1"}
 	_, available, err = repo.BusinessOutcomeTimelineWithFilter(ctx, narrow)
 	if err != nil {
@@ -298,6 +305,76 @@ func TestBusinessOutcomeExcludedShareThreshold(t *testing.T) {
 	}
 	if available {
 		t.Fatalf("excluded share above the ceiling should hide the fold")
+	}
+}
+
+func TestBusinessOutcomeSingleAccountWithMostlySingleAttemptsHides(t *testing.T) {
+	repo := openBusinessOutcomeRepo(t)
+	ctx := context.Background()
+	hourA := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
+	// Production shape that motivated the retried-request denominator:
+	// hundreds of single-attempt requests on one account and a handful of
+	// retried requests, every one of which hopped to another account. With
+	// the old all-requests denominator 3/63 = 4.8% stayed visible and
+	// reported rescued=0 as if the account was never rescued; over retried
+	// requests 3/3 = 100% hides the fold.
+	events := make([]usage.Event, 0, 66)
+	for i := 0; i < 60; i++ {
+		events = append(events, businessOutcomeScopedEvent(
+			fmt.Sprintf("sa-c%d", i), fmt.Sprintf("sa-req-%d", i), hourA+10_000+int64(i)*1_000, "auth-1", "gpt-x", false))
+	}
+	for i := 0; i < 3; i++ {
+		requestID := fmt.Sprintf("sa-hop-%d", i)
+		base := hourA + 100_000 + int64(i)*2_000
+		events = append(events,
+			businessOutcomeScopedEvent(fmt.Sprintf("sa-h%d-a1", i), requestID, base, "auth-1", "gpt-x", true),
+			businessOutcomeScopedEvent(fmt.Sprintf("sa-h%d-a2", i), requestID, base+1_000, "auth-2", "gpt-x", false))
+	}
+	if _, err := repo.InsertBatch(ctx, events); err != nil {
+		t.Fatalf("insert events: %v", err)
+	}
+
+	filter := businessOutcomeTimeFilter(hourA, hourA+3_600_000)
+	filter.AuthIndices = []string{"auth-1"}
+	_, available, err := repo.BusinessOutcomeTimelineWithFilter(ctx, filter)
+	if err != nil {
+		t.Fatalf("single-account business outcome: %v", err)
+	}
+	if available {
+		t.Fatalf("single-account fold with every retry hopping accounts should hide, not report rescued=0")
+	}
+}
+
+func TestBusinessOutcomeScopeWithoutRetriesStaysVisible(t *testing.T) {
+	repo := openBusinessOutcomeRepo(t)
+	ctx := context.Background()
+	hourA := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
+	// No retried request in scope means no split risk: the fold stays
+	// visible even though the scope is a single account.
+	events := make([]usage.Event, 0, 7)
+	for i := 0; i < 5; i++ {
+		events = append(events, businessOutcomeScopedEvent(
+			fmt.Sprintf("nr-c%d", i), fmt.Sprintf("nr-req-%d", i), hourA+10_000+int64(i)*1_000, "auth-1", "gpt-x", i == 0))
+	}
+	// A retried request entirely outside the scope must not count either.
+	events = append(events,
+		businessOutcomeScopedEvent("nr-x-a1", "nr-ext", hourA+50_000, "auth-2", "gpt-x", true),
+		businessOutcomeScopedEvent("nr-x-a2", "nr-ext", hourA+51_000, "auth-2", "gpt-x", false))
+	if _, err := repo.InsertBatch(ctx, events); err != nil {
+		t.Fatalf("insert events: %v", err)
+	}
+
+	filter := businessOutcomeTimeFilter(hourA, hourA+3_600_000)
+	filter.AuthIndices = []string{"auth-1"}
+	rows, available, err := repo.BusinessOutcomeTimelineWithFilter(ctx, filter)
+	if err != nil {
+		t.Fatalf("no-retry business outcome: %v", err)
+	}
+	if !available {
+		t.Fatalf("scope without retried requests should stay visible")
+	}
+	if len(rows) != 1 || rows[0].Requests != 5 || rows[0].Failures != 1 || rows[0].RescuedRequests != 0 {
+		t.Fatalf("no-retry rows = %#v, want requests=5 failures=1 rescued=0", rows)
 	}
 }
 
