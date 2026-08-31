@@ -310,36 +310,49 @@ export function ErrorInsightPage() {
   });
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
-  const allOption = useMemo<SelectOption>(
-    () => ({ value: 'all', label: t('error_insight.filter_all', 'All') }),
+  // Each filter's "no filter" entry names its own dimension ("All models"
+  // rather than a bare "All"), so the collapsed trigger still says what the
+  // dropdown selects. Labels reuse the monitoring/usage-analytics keys that
+  // already carry that wording in every locale.
+  const allOptionFor = useCallback(
+    (labelKey: string): SelectOption => ({ value: 'all', label: t(labelKey) }),
     [t]
   );
   const modelOptions = useMemo<SelectOption[]>(
-    () => [allOption, ...options.models.map((name) => ({ value: name, label: name }))],
-    [allOption, options.models]
+    () => [
+      allOptionFor('monitoring.filter_all_models'),
+      ...options.models.map((name) => ({ value: name, label: name })),
+    ],
+    [allOptionFor, options.models]
   );
   const providerOptions = useMemo<SelectOption[]>(
-    () => [allOption, ...options.providers.map((name) => ({ value: name, label: name }))],
-    [allOption, options.providers]
+    () => [
+      allOptionFor('monitoring.filter_all_providers'),
+      ...options.providers.map((name) => ({ value: name, label: name })),
+    ],
+    [allOptionFor, options.providers]
   );
   const apiKeyOptions = useMemo<SelectOption[]>(
     () => [
-      allOption,
+      allOptionFor('monitoring.filter_all_api_keys'),
       ...options.apiKeys.map((hash) => ({ value: hash, label: maskApiKeyHash(hash) })),
     ],
-    [allOption, options.apiKeys]
+    [allOptionFor, options.apiKeys]
   );
   const bucketOptions = useMemo<SelectOption[]>(
     () => [
-      allOption,
+      allOptionFor('usage_analytics.filter_all_buckets'),
       ...options.buckets,
       { value: UNTAGGED_BUCKET_FILTER, label: t('auth_files.bucket_filter_untagged') },
     ],
-    [allOption, options.buckets, t]
+    [allOptionFor, options.buckets, t]
   );
   const authFileOptions = useMemo<SelectOption[]>(
-    () => [allOption, ...options.authFiles.map((name) => ({ value: name, label: name }))],
-    [allOption, options.authFiles]
+    () => [
+      allOptionFor('usage_analytics.filter_all_auth_files'),
+      ...options.authFiles.map((name) => ({ value: name, label: name })),
+    ],
+    [allOptionFor, options.authFiles]
   );
 
   const donutOption = useMemo<EChartsCoreOption | null>(
