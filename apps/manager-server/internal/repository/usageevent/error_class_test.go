@@ -39,6 +39,104 @@ func insertFailedEvent(t *testing.T, repo Repository, hash string, ts time.Time,
 	}
 }
 
+func insertFailedEventWith(t *testing.T, repo Repository, hash string, ts time.Time, statusCode int, summary, provider, model string) {
+	t.Helper()
+	event := usage.Event{
+		EventHash:      hash,
+		TimestampMS:    ts.UnixMilli(),
+		Timestamp:      ts.Format(time.RFC3339Nano),
+		Provider:       provider,
+		Model:          model,
+		Failed:         true,
+		FailStatusCode: statusCode,
+		FailSummary:    summary,
+		CreatedAtMS:    ts.UnixMilli(),
+	}
+	if _, err := repo.InsertBatch(context.Background(), []usage.Event{event}); err != nil {
+		t.Fatalf("insert event %s: %v", hash, err)
+	}
+}
+
+func TestErrorClassBreakdownByProviderAndModel(t *testing.T) {
+	repo := newErrorClassTestRepo(t)
+	base := time.Date(2026, time.August, 1, 10, 0, 0, 0, time.UTC)
+
+	// 3 个 provider(含空字符串) × 2 类。
+	cases := []struct {
+		hash       string
+		provider   string
+		model      string
+		statusCode int
+		summary    string
+		wantClass  string
+	}{
+		{"bd-1", "anthropic", "claude-3", 429, "", "rate_limited"},
+		{"bd-2", "anthropic", "claude-3", 500, `Post "https://api.anthropic.com": context canceled`, "client_canceled"},
+		{"bd-3", "openai", "gpt-4", 429, "", "rate_limited"},
+		{"bd-4", "openai", "gpt-4", 500, `Post "https://api.openai.com": context canceled`, "client_canceled"},
+		{"bd-5", "", "gpt-4", 429, "", "rate_limited"},
+		{"bd-6", "", "gpt-4", 500, `Post "https://api.openai.com": context canceled`, "client_canceled"},
+	}
+	for i, c := range cases {
+		insertFailedEventWith(t, repo, c.hash, base.Add(time.Duration(i)*time.Minute), c.statusCode, c.summary, c.provider, c.model)
+	}
+
+	filter := AnalyticsFilter{
+		FromMS: base.UnixMilli(),
+		ToMS:   base.Add(time.Hour).UnixMilli(),
+	}
+
+	byProvider, err := repo.ErrorClassBreakdownWithFilter(context.Background(), filter, "provider")
+	if err != nil {
+		t.Fatalf("breakdown by provider: %v", err)
+	}
+	gotProvider := map[[2]string]int64{}
+	for _, row := range byProvider {
+		gotProvider[[2]string{row.Key, row.Class}] += row.Count
+	}
+	wantProvider := map[[2]string]int64{}
+	for _, c := range cases {
+		wantProvider[[2]string{c.provider, c.wantClass}]++
+	}
+	if len(gotProvider) != len(wantProvider) {
+		t.Fatalf("provider breakdown has %d cells, want %d (map: %#v)", len(gotProvider), len(wantProvider), gotProvider)
+	}
+	for key, want := range wantProvider {
+		if gotProvider[key] != want {
+			t.Errorf("provider breakdown cell %v = %d, want %d (map: %#v)", key, gotProvider[key], want, gotProvider)
+		}
+	}
+	// 空 provider 落到 '' 键，而不是被丢弃或归并到其他 provider。
+	if gotProvider[[2]string{"", "rate_limited"}] != 1 {
+		t.Errorf(`empty provider "rate_limited" cell = %d, want 1 (map: %#v)`, gotProvider[[2]string{"", "rate_limited"}], gotProvider)
+	}
+
+	byModel, err := repo.ErrorClassBreakdownWithFilter(context.Background(), filter, "model")
+	if err != nil {
+		t.Fatalf("breakdown by model: %v", err)
+	}
+	gotModel := map[[2]string]int64{}
+	for _, row := range byModel {
+		gotModel[[2]string{row.Key, row.Class}] += row.Count
+	}
+	wantModel := map[[2]string]int64{}
+	for _, c := range cases {
+		wantModel[[2]string{c.model, c.wantClass}]++
+	}
+	if len(gotModel) != len(wantModel) {
+		t.Fatalf("model breakdown has %d cells, want %d (map: %#v)", len(gotModel), len(wantModel), gotModel)
+	}
+	for key, want := range wantModel {
+		if gotModel[key] != want {
+			t.Errorf("model breakdown cell %v = %d, want %d (map: %#v)", key, gotModel[key], want, gotModel)
+		}
+	}
+
+	if _, err := repo.ErrorClassBreakdownWithFilter(context.Background(), filter, "account"); err == nil {
+		t.Fatalf("expected error for unknown dimension, got nil")
+	}
+}
+
 func TestErrorClassStatsClassification(t *testing.T) {
 	repo := newErrorClassTestRepo(t)
 	base := time.Date(2026, time.August, 1, 10, 0, 0, 0, time.UTC)

@@ -3,6 +3,7 @@ package usageevent
 import (
 	"context"
 	"database/sql"
+	"fmt"
 )
 
 // errorClassExpression buckets one failed usage event into a stable error
@@ -151,4 +152,47 @@ limit ?`, args...)
 		failures = append(failures, failure)
 	}
 	return failures, rows.Err()
+}
+
+// ErrorClassBreakdownRow is one (dimension key, class) cell.
+type ErrorClassBreakdownRow struct {
+	Key   string
+	Class string
+	Count int64
+}
+
+// errorClassBreakdownKeyExpressions maps a supported breakdown dimension to
+// the SQL expression that derives its key, mirroring the coalesce fallbacks
+// used by the recent-failures query above.
+var errorClassBreakdownKeyExpressions = map[string]string{
+	"provider": `coalesce(nullif(auth_provider_snapshot, ''), coalesce(provider, ''))`,
+	"model":    `coalesce(nullif(requested_model, ''), model)`,
+}
+
+func (r *repository) ErrorClassBreakdownWithFilter(ctx context.Context, filter AnalyticsFilter, dimension string) ([]ErrorClassBreakdownRow, error) {
+	keyExpr, ok := errorClassBreakdownKeyExpressions[dimension]
+	if !ok {
+		return nil, fmt.Errorf("unsupported error class breakdown dimension: %q", dimension)
+	}
+	f := filter
+	f.IncludeFailed = true // Prevent analyticsWhere from adding "failed = 0"
+	where, args := analyticsWhere(f)
+	rows, err := r.db.QueryContext(ctx, `select `+keyExpr+` as k, `+errorClassExpression+` as class, count(*)
+from usage_events `+where+` and failed = 1
+group by k, class
+order by k`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	breakdown := make([]ErrorClassBreakdownRow, 0)
+	for rows.Next() {
+		var row ErrorClassBreakdownRow
+		if err := rows.Scan(&row.Key, &row.Class, &row.Count); err != nil {
+			return nil, err
+		}
+		breakdown = append(breakdown, row)
+	}
+	return breakdown, rows.Err()
 }

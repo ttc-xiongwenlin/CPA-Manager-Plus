@@ -70,6 +70,7 @@ type RecentFailure = usageevent.RecentFailure
 type ErrorClassStat = usageevent.ErrorClassStat
 type ErrorClassTimelinePoint = usageevent.ErrorClassTimelinePoint
 type ErrorClassRecentFailure = usageevent.ErrorClassRecentFailure
+type ErrorClassBreakdownRow = usageevent.ErrorClassBreakdownRow
 type AnalyticsFilter = usageevent.AnalyticsFilter
 type TimelinePoint = usageevent.TimelinePoint
 type LatencyPercentiles = usageevent.LatencyPercentiles
@@ -912,6 +913,10 @@ func (s *Store) ErrorClassTimelineWithFilter(ctx context.Context, filter Analyti
 
 func (s *Store) ErrorClassRecentWithFilter(ctx context.Context, filter AnalyticsFilter, limit int) ([]ErrorClassRecentFailure, error) {
 	return s.UsageEvents.ErrorClassRecentWithFilter(ctx, filter, limit)
+}
+
+func (s *Store) ErrorClassBreakdownWithFilter(ctx context.Context, filter AnalyticsFilter, dimension string) ([]ErrorClassBreakdownRow, error) {
+	return s.UsageEvents.ErrorClassBreakdownWithFilter(ctx, filter, dimension)
 }
 
 func (s *Store) EventsPageWithFilter(ctx context.Context, filter AnalyticsFilter, beforeMS int64, beforeID int64, limit int) (EventsPage, error) {
