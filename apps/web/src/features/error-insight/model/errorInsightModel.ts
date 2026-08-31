@@ -56,12 +56,19 @@ export interface ErrorInsightWindowBounds {
   toMs: number;
 }
 
+export interface ErrorInsightBreakdownView {
+  keys: string[];
+  series: { class: ErrorClass; data: number[] }[];
+}
+
 export interface ErrorInsightView {
   totalFailures: number;
   shares: ErrorClassShare[];
   donutData: ErrorClassShare[];
   timelineBuckets: number[];
   timelineSeries: { class: ErrorClass; data: number[] }[];
+  byProvider: ErrorInsightBreakdownView;
+  byModel: ErrorInsightBreakdownView;
   kpis: ErrorInsightKpis;
   recent: ErrorInsightResponse['recent'];
 }
@@ -155,14 +162,14 @@ export function buildErrorInsightView(
     donutData: shares,
     timelineBuckets: buckets,
     timelineSeries,
+    // by_provider/by_model breakdowns reuse the same helper the
+    // per-key charts call directly, so the shape stays identical whether a
+    // caller reads it off `view` or builds it itself from raw items.
+    byProvider: buildBreakdownView(response.by_provider),
+    byModel: buildBreakdownView(response.by_model),
     kpis: computeKpis(shares, total),
     recent: response.recent,
   };
-}
-
-export interface ErrorInsightBreakdownView {
-  keys: string[];
-  series: { class: ErrorClass; data: number[] }[];
 }
 
 export function buildBreakdownView(items: ErrorInsightBreakdownItem[]): ErrorInsightBreakdownView {
