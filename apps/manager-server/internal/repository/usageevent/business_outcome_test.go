@@ -429,7 +429,7 @@ func TestBusinessOutcomeScopedQueryStaysOnCoveringIndexes(t *testing.T) {
 	filter.AuthIndices = []string{"auth-1", "auth-2"}
 	where, whereArgs := analyticsWhere(filter)
 	args := append(whereArgs, filter.FromMS, filter.ToMS)
-	rows, err := db.Query(`explain query plan `+fmt.Sprintf(businessOutcomeScopedTimelineSQL, where), args...)
+	rows, err := db.Query(`explain query plan `+fmt.Sprintf(businessOutcomeScopedTimelineSQL, businessOutcomeInScopeExpr, where), args...)
 	if err != nil {
 		t.Fatalf("explain scoped business outcome query: %v", err)
 	}
@@ -460,5 +460,67 @@ func TestBusinessOutcomeScopedQueryStaysOnCoveringIndexes(t *testing.T) {
 	}
 	if !coversFold || !coversProbe || rowLookup {
 		t.Fatalf("scoped business outcome query left its covering indexes: %v", details)
+	}
+}
+
+func bucketScopeEvent(hash, requestID, authIndex string, timestampMS int64, failed bool) usage.Event {
+	event := businessOutcomeEvent(hash, requestID, timestampMS, failed)
+	event.AuthIndex = authIndex
+	return event
+}
+
+// A bucket filter expands to the accounts tagged with that bucket TODAY, so a
+// request whose retry landed on an account that has since moved buckets looks
+// split even though buckets are isolated and the retry never left the pool.
+// BucketScope credits the whole request to the bucket instead of hiding the
+// fold over the coverage threshold.
+func TestBusinessOutcomeTimelineKeepsPartiallyCoveredBucketRequests(t *testing.T) {
+	db, err := sqliterepo.Open(filepath.Join(t.TempDir(), "usage.sqlite"))
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := sqliterepo.RunDerivedStartupMaintenance(context.Background(), db); err != nil {
+		t.Fatalf("prepare post-listen indexes: %v", err)
+	}
+	repo := New(db)
+	ctx := context.Background()
+	hourA := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
+	if _, err := repo.InsertBatch(ctx, []usage.Event{
+		// Rescued retry, both attempts still in the pool.
+		bucketScopeEvent("bs-r1-a1", "r1", "auth-1", hourA+1_000, true),
+		bucketScopeEvent("bs-r1-a2", "r1", "auth-2", hourA+2_000, false),
+		// Rescued retry whose second attempt sits on an account that left the
+		// pool, so the expansion no longer covers it.
+		bucketScopeEvent("bs-r2-a1", "r2", "auth-1", hourA+3_000, true),
+		bucketScopeEvent("bs-r2-a2", "r2", "auth-moved", hourA+4_000, false),
+		// Another bucket entirely: never in scope.
+		bucketScopeEvent("bs-r3-a1", "r3", "auth-other", hourA+5_000, true),
+	}); err != nil {
+		t.Fatalf("insert events: %v", err)
+	}
+
+	filter := businessOutcomeTimeFilter(hourA, hourA+3_600_000)
+	filter.AuthIndices = []string{"auth-1", "auth-2"}
+
+	if _, available, err := repo.BusinessOutcomeTimelineWithFilter(ctx, filter); err != nil {
+		t.Fatalf("business outcome timeline: %v", err)
+	} else if available {
+		t.Fatalf("plain scope kept the fold, want it hidden over the coverage threshold")
+	}
+
+	filter.BucketScope = true
+	rows, available, err := repo.BusinessOutcomeTimelineWithFilter(ctx, filter)
+	if err != nil {
+		t.Fatalf("bucket scope timeline: %v", err)
+	}
+	if !available {
+		t.Fatalf("bucket scope hid the fold, want it visible")
+	}
+	if len(rows) != 1 {
+		t.Fatalf("bucket scope rows = %#v, want 1 hour row", rows)
+	}
+	if rows[0].Requests != 2 || rows[0].Failures != 0 || rows[0].RescuedRequests != 2 {
+		t.Fatalf("bucket scope row = %#v, want requests=2 failures=0 rescued=2", rows[0])
 	}
 }

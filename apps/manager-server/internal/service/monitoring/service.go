@@ -144,6 +144,9 @@ type Filters struct {
 	FailedOnly       bool     `json:"failed_only"`
 	MinLatencyMS     int64    `json:"min_latency_ms"`
 	CacheStatus      string   `json:"cache_status"`
+	// BucketScope tells the business outcome fold that AuthIndices is one
+	// routing bucket rather than a hand-picked set of accounts.
+	BucketScope bool `json:"bucket_scope"`
 }
 
 type Include struct {
@@ -1785,6 +1788,7 @@ func buildFilter(req Request) store.AnalyticsFilter {
 		FailedOnly:       req.Filters.FailedOnly,
 		MinLatencyMS:     req.Filters.MinLatencyMS,
 		CacheStatus:      req.Filters.CacheStatus,
+		BucketScope:      req.Filters.BucketScope,
 	}
 }
 

@@ -57,6 +57,12 @@ type AnalyticsFilter struct {
 	HeaderErrorCodes []string
 	HeaderQuotaPlans []string
 	HeaderTraceIDs   []string
+	// BucketScope marks AuthIndices as one CPA routing bucket (including the
+	// untagged pool) rather than a hand-picked set of accounts. Buckets are
+	// isolated: a request never retries out of the bucket it started in, so the
+	// business outcome fold can credit a whole request to the bucket as soon as
+	// one of its attempts lands inside.
+	BucketScope bool
 }
 
 var analyticsSearchTextColumns = usageprojection.SearchColumns
@@ -1555,9 +1561,10 @@ order by bucket_ms`
 // businessOutcomeScopedTimelineSQL is the coverage-checked variant used when
 // the filter carries fold-safe scope. The outer fold scans the FULL time
 // window with no scope so every request keeps its true attempt count n_all;
-// the %s placeholder receives the analyticsWhere clause (same FromMS/ToMS
+// the %[2]s placeholder receives the analyticsWhere clause (same FromMS/ToMS
 // plus the scope conditions), and n_in counts the attempts that clause
-// matches. The window equality matters: probing a wider or narrower window
+// matches. %[1]s receives the in-scope predicate: businessOutcomeInScopeExpr
+// for an arbitrary scope, businessOutcomeBucketInScopeExpr for a bucket. The window equality matters: probing a wider or narrower window
 // than the fold would count boundary attempts into n_all but never into
 // n_in, misjudging complete requests as split. Requests with n_in = 0 are
 // out of scope entirely; n_in < n_all means the scope splits the request
@@ -1569,10 +1576,10 @@ order by bucket_ms`
 // for the per-row wide-lookup formulation).
 const businessOutcomeScopedTimelineSQL = `select
 	first_ts / 3600000 * 3600000 as bucket_ms,
-	coalesce(sum(case when n_in = n_all then 1 else 0 end), 0),
-	coalesce(sum(case when n_in = n_all then all_failed else 0 end), 0),
-	coalesce(sum(case when n_in = n_all then any_failed - all_failed else 0 end), 0),
-	coalesce(sum(case when n_in < n_all then 1 else 0 end), 0),
+	coalesce(sum(case when %[1]s then 1 else 0 end), 0),
+	coalesce(sum(case when %[1]s then all_failed else 0 end), 0),
+	coalesce(sum(case when %[1]s then any_failed - all_failed else 0 end), 0),
+	coalesce(sum(case when not (%[1]s) then 1 else 0 end), 0),
 	coalesce(sum(case when n_all > 1 then 1 else 0 end), 0)
 from (
 	select
@@ -1580,7 +1587,7 @@ from (
 		min(e.failed) as all_failed,
 		max(e.failed) as any_failed,
 		count(*) as n_all,
-		sum(e.id in (select id from usage_events indexed by idx_usage_events_latency_scope_v2 %s)) as n_in
+		sum(e.id in (select id from usage_events indexed by idx_usage_events_latency_scope_v2 %[2]s)) as n_in
 	from usage_events e indexed by ` + businessOutcomeIndexName + `
 	where e.timestamp_ms >= ? and e.timestamp_ms < ?
 	group by coalesce(nullif(e.request_id, ''), 'event:' || e.id)
@@ -1647,6 +1654,22 @@ func businessOutcomeHasScope(filter AnalyticsFilter) bool {
 // fold stays visible.
 const businessOutcomeMaxExcludedShare = 0.05
 
+// businessOutcomeInScopeExpr keeps only requests the filter covers completely:
+// an arbitrary scope (a single account, a model) can hold part of a request
+// while a retry hopped outside it, and crediting the whole request to the
+// filter would then report an outcome the filter never saw.
+const businessOutcomeInScopeExpr = "n_in = n_all"
+
+// businessOutcomeBucketInScopeExpr credits the whole request once any attempt
+// lands in the bucket. A bucket is an isolated routing pool, so a retry never
+// leaves it and a partially covered request only means the auth_index list
+// missed an attempt of the same bucket: the untagged pool is expanded from the
+// accounts that carry no bucket tag TODAY, so a request whose retry landed on
+// an account that has since been tagged looks split even though it never left
+// the pool. Under this predicate nothing is excluded, so
+// businessOutcomeMaxExcludedShare cannot trip and the fold stays visible.
+const businessOutcomeBucketInScopeExpr = "n_in > 0"
+
 // BusinessOutcomeTimelineWithFilter folds upstream attempts into client
 // requests by request_id and reports hourly outcome totals. Fold-safe scope
 // filters (model, auth indices, key, source) run through a coverage check
@@ -1697,7 +1720,11 @@ func (r *repository) BusinessOutcomeTimelineWithFilter(ctx context.Context, filt
 	// placeholders bind first because the probe appears in the select list.
 	where, whereArgs := analyticsWhere(filter)
 	args := append(whereArgs, filter.FromMS, filter.ToMS)
-	rows, err := r.db.QueryContext(ctx, fmt.Sprintf(businessOutcomeScopedTimelineSQL, where), args...)
+	inScope := businessOutcomeInScopeExpr
+	if filter.BucketScope {
+		inScope = businessOutcomeBucketInScopeExpr
+	}
+	rows, err := r.db.QueryContext(ctx, fmt.Sprintf(businessOutcomeScopedTimelineSQL, inScope, where), args...)
 	if err != nil {
 		return nil, false, err
 	}

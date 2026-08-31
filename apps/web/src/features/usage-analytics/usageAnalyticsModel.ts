@@ -763,6 +763,12 @@ export const buildUsageAnalyticsFilters = (
       .map(([authIndex]) => authIndex);
     payload.auth_indices =
       bucketAuthIndices.length > 0 ? bucketAuthIndices.sort() : ['__no_matching_auth_index__'];
+    // Buckets are isolated routing pools, so the business outcome fold may
+    // credit a whole request to the bucket once one attempt lands in it. The
+    // expansion reads the bucket tags accounts carry now, and the untagged pool
+    // keeps losing members to named buckets, so without this the fold reads
+    // those requests as split by the filter and hides itself.
+    payload.bucket_scope = true;
   }
   return payload;
 };

@@ -1620,6 +1620,18 @@ describe('usage analytics bucket filter', () => {
     expect(payload.auth_indices).toEqual(['2']);
   });
 
+  it('marks the expansion as a bucket so the business outcome fold keeps it', () => {
+    // The expansion reads today's bucket tags, and the untagged pool keeps
+    // losing members to named buckets; without this flag the server reads a
+    // request whose retry landed on a since-tagged account as split by the
+    // filter and withholds the fold.
+    expect(buildUsageAnalyticsFilters({ bucket: 'anon' }, authMetaMap).bucket_scope).toBe(true);
+    expect(
+      buildUsageAnalyticsFilters({ bucket: UNTAGGED_BUCKET_FILTER }, authMetaMap).bucket_scope
+    ).toBe(true);
+    expect(buildUsageAnalyticsFilters({}, authMetaMap).bucket_scope).toBeUndefined();
+  });
+
   it('yields the no-match sentinel for a bucket with zero accounts', () => {
     const payload = buildUsageAnalyticsFilters({ bucket: 'ghost' }, authMetaMap);
     expect(payload.auth_indices).toEqual(['__no_matching_auth_index__']);

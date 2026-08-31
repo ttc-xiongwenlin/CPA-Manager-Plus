@@ -786,6 +786,8 @@ export interface MonitoringAnalyticsFilters {
   failed_only?: boolean;
   min_latency_ms?: number;
   cache_status?: string;
+  /** auth_indices is one routing bucket, not a hand-picked set of accounts. */
+  bucket_scope?: boolean;
 }
 
 export interface MonitoringAnalyticsEventsPageRequest {
