@@ -111,6 +111,8 @@ func TestBuildResponseMapsNullableFields(t *testing.T) {
 			Summary:     "unauthorized",
 			LatencyMS:   sql.NullInt64{},
 		}},
+		[]store.ErrorClassBreakdownRow{{Key: "codex", Class: "auth", Count: 3}},
+		[]store.ErrorClassBreakdownRow{{Key: "gpt-test", Class: "auth", Count: 3}},
 	)
 	if len(got.Classes) != 1 || got.Classes[0].Class != "auth" || got.Classes[0].Count != 3 {
 		t.Fatalf("classes = %#v", got.Classes)
@@ -126,5 +128,67 @@ func TestBuildResponseMapsNullableFields(t *testing.T) {
 	}
 	if got.Recent[0].LatencyMS != 0 {
 		t.Errorf("latency_ms = %d, want 0 for null latency", got.Recent[0].LatencyMS)
+	}
+	wantProvider := []breakdownItem{{Key: "codex", Class: "auth", Count: 3}}
+	if !reflect.DeepEqual(got.ByProvider, wantProvider) {
+		t.Errorf("by_provider = %#v, want %#v", got.ByProvider, wantProvider)
+	}
+	wantModel := []breakdownItem{{Key: "gpt-test", Class: "auth", Count: 3}}
+	if !reflect.DeepEqual(got.ByModel, wantModel) {
+		t.Errorf("by_model = %#v, want %#v", got.ByModel, wantModel)
+	}
+}
+
+func TestTopBreakdownKeys(t *testing.T) {
+	rows := []store.ErrorClassBreakdownRow{
+		{Key: "k01", Class: "auth", Count: 1},
+		{Key: "k02", Class: "auth", Count: 2},
+		{Key: "k03", Class: "auth", Count: 3},
+		{Key: "k04", Class: "auth", Count: 4},
+		{Key: "k05", Class: "auth", Count: 5},
+		{Key: "k06", Class: "auth", Count: 6},
+		{Key: "k07", Class: "auth", Count: 7},
+		{Key: "k08", Class: "auth", Count: 8},
+		{Key: "k09", Class: "auth", Count: 9},
+		{Key: "k10", Class: "auth", Count: 10},
+		{Key: "k11", Class: "auth", Count: 11},
+		{Key: "k12", Class: "auth", Count: 12},
+		// Second row for k10, placed non-adjacently in the input, pushing k10's
+		// total (15) above k12 (12) -- exercises both the adjacency guarantee
+		// and the total-based ordering.
+		{Key: "k10", Class: "rate_limit", Count: 5},
+	}
+
+	got := topBreakdownKeys(rows, 10)
+
+	want := []breakdownItem{
+		{Key: "k10", Class: "auth", Count: 10},
+		{Key: "k10", Class: "rate_limit", Count: 5},
+		{Key: "k12", Class: "auth", Count: 12},
+		{Key: "k11", Class: "auth", Count: 11},
+		{Key: "k09", Class: "auth", Count: 9},
+		{Key: "k08", Class: "auth", Count: 8},
+		{Key: "k07", Class: "auth", Count: 7},
+		{Key: "k06", Class: "auth", Count: 6},
+		{Key: "k05", Class: "auth", Count: 5},
+		{Key: "k04", Class: "auth", Count: 4},
+		{Key: "k03", Class: "auth", Count: 3},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("topBreakdownKeys = %#v, want %#v", got, want)
+	}
+
+	seen := make(map[string]bool)
+	for _, item := range got {
+		if seen[item.Key] {
+			continue
+		}
+		seen[item.Key] = true
+	}
+	if len(seen) != 10 {
+		t.Fatalf("kept key count = %d, want 10", len(seen))
+	}
+	if seen["k01"] || seen["k02"] {
+		t.Fatalf("expected the two lowest-total keys (k01, k02) to be dropped, got = %#v", got)
 	}
 }

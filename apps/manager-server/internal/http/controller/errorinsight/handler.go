@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/app"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/http/middleware"
@@ -17,6 +18,11 @@ import (
 const maxWindowMS = 14 * 24 * 60 * 60 * 1000
 
 const recentLimit = 50
+
+// breakdownLimit caps how many distinct keys (providers or models) the
+// by_provider / by_model breakdowns return; the controller truncates to the
+// top keys by summed count and discards the rest.
+const breakdownLimit = 10
 
 type Handler struct {
 	App *app.Context
@@ -84,10 +90,18 @@ type recentItem struct {
 	LatencyMS   int64  `json:"latency_ms,omitempty"`
 }
 
+type breakdownItem struct {
+	Key   string `json:"key"`
+	Class string `json:"class"`
+	Count int64  `json:"count"`
+}
+
 type insightResponse struct {
-	Classes  []classItem    `json:"classes"`
-	Timeline []timelineItem `json:"timeline"`
-	Recent   []recentItem   `json:"recent"`
+	Classes    []classItem     `json:"classes"`
+	Timeline   []timelineItem  `json:"timeline"`
+	Recent     []recentItem    `json:"recent"`
+	ByProvider []breakdownItem `json:"by_provider"`
+	ByModel    []breakdownItem `json:"by_model"`
 }
 
 func validateWindow(fromMS, toMS int64) error {
@@ -107,6 +121,8 @@ func buildResponse(
 	stats []store.ErrorClassStat,
 	timeline []store.ErrorClassTimelinePoint,
 	recent []store.ErrorClassRecentFailure,
+	providerBreakdown []store.ErrorClassBreakdownRow,
+	modelBreakdown []store.ErrorClassBreakdownRow,
 ) insightResponse {
 	out := insightResponse{
 		Classes:  make([]classItem, 0, len(stats)),
@@ -135,6 +151,50 @@ func buildResponse(
 			item.LatencyMS = failure.LatencyMS.Int64
 		}
 		out.Recent = append(out.Recent, item)
+	}
+	out.ByProvider = topBreakdownKeys(providerBreakdown, breakdownLimit)
+	out.ByModel = topBreakdownKeys(modelBreakdown, breakdownLimit)
+	return out
+}
+
+// topBreakdownKeys keeps only the rows belonging to the top `limit` keys by
+// summed count, ordering keys by that total descending (ties keep the key's
+// first-seen order in rows). All rows of a kept key stay together and adjacent
+// in the output, and their relative order is preserved.
+func topBreakdownKeys(rows []store.ErrorClassBreakdownRow, limit int) []breakdownItem {
+	totals := make(map[string]int64, len(rows))
+	order := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if _, seen := totals[row.Key]; !seen {
+			order = append(order, row.Key)
+		}
+		totals[row.Key] += row.Count
+	}
+
+	sort.SliceStable(order, func(i, j int) bool {
+		return totals[order[i]] > totals[order[j]]
+	})
+	if len(order) > limit {
+		order = order[:limit]
+	}
+
+	kept := make(map[string]bool, len(order))
+	for _, key := range order {
+		kept[key] = true
+	}
+
+	rowsByKey := make(map[string][]store.ErrorClassBreakdownRow, len(order))
+	for _, row := range rows {
+		if kept[row.Key] {
+			rowsByKey[row.Key] = append(rowsByKey[row.Key], row)
+		}
+	}
+
+	out := make([]breakdownItem, 0, len(rows))
+	for _, key := range order {
+		for _, row := range rowsByKey[key] {
+			out = append(out, breakdownItem{Key: row.Key, Class: row.Class, Count: row.Count})
+		}
 	}
 	return out
 }
@@ -182,6 +242,16 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, err)
 		return
 	}
+	providerBreakdown, err := h.App.Store.ErrorClassBreakdownWithFilter(ctx, filter, "provider")
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err)
+		return
+	}
+	modelBreakdown, err := h.App.Store.ErrorClassBreakdownWithFilter(ctx, filter, "model")
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err)
+		return
+	}
 
-	response.JSON(w, http.StatusOK, buildResponse(stats, timeline, recent))
+	response.JSON(w, http.StatusOK, buildResponse(stats, timeline, recent, providerBreakdown, modelBreakdown))
 }
