@@ -67,6 +67,9 @@ var NormalizeCodexInspectionConfig = model.NormalizeCodexInspectionConfig
 type Aggregate = usageevent.Aggregate
 type ModelStat = usageevent.ModelStat
 type RecentFailure = usageevent.RecentFailure
+type ErrorClassStat = usageevent.ErrorClassStat
+type ErrorClassTimelinePoint = usageevent.ErrorClassTimelinePoint
+type ErrorClassRecentFailure = usageevent.ErrorClassRecentFailure
 type AnalyticsFilter = usageevent.AnalyticsFilter
 type TimelinePoint = usageevent.TimelinePoint
 type LatencyPercentiles = usageevent.LatencyPercentiles
@@ -897,6 +900,18 @@ func (s *Store) TaskBucketsWithFilter(ctx context.Context, filter AnalyticsFilte
 
 func (s *Store) RecentFailuresWithFilter(ctx context.Context, filter AnalyticsFilter, limit int) ([]RecentFailure, error) {
 	return s.UsageEvents.RecentFailuresWithFilter(ctx, filter, limit)
+}
+
+func (s *Store) ErrorClassStatsWithFilter(ctx context.Context, filter AnalyticsFilter) ([]ErrorClassStat, error) {
+	return s.UsageEvents.ErrorClassStatsWithFilter(ctx, filter)
+}
+
+func (s *Store) ErrorClassTimelineWithFilter(ctx context.Context, filter AnalyticsFilter) ([]ErrorClassTimelinePoint, error) {
+	return s.UsageEvents.ErrorClassTimelineWithFilter(ctx, filter)
+}
+
+func (s *Store) ErrorClassRecentWithFilter(ctx context.Context, filter AnalyticsFilter, limit int) ([]ErrorClassRecentFailure, error) {
+	return s.UsageEvents.ErrorClassRecentWithFilter(ctx, filter, limit)
 }
 
 func (s *Store) EventsPageWithFilter(ctx context.Context, filter AnalyticsFilter, beforeMS int64, beforeID int64, limit int) (EventsPage, error) {
