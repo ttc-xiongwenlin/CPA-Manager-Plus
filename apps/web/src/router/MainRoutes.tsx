@@ -22,6 +22,7 @@ import { OAuthPage } from '@/pages/OAuthPage';
 import { UsageAnalyticsPage } from '@/pages/UsageAnalyticsPage';
 import { MonitoringCenterPage } from '@/pages/MonitoringCenterPage';
 import { AccountActionCandidatesPage } from '@/pages/AccountActionCandidatesPage';
+import { ErrorInsightPage } from '@/pages/ErrorInsightPage';
 import { ModelPricesPage } from '@/pages/ModelPricesPage';
 import { ConfigPage } from '@/pages/ConfigPage';
 import { LogsPage } from '@/pages/LogsPage';
@@ -184,6 +185,14 @@ const mainRoutes: RouteObject[] = [
     element: (
       <FeatureGate feature="requestMonitoring">
         <AccountActionCandidatesPage />
+      </FeatureGate>
+    ),
+  },
+  {
+    path: '/monitoring/errors',
+    element: (
+      <FeatureGate feature="requestMonitoring">
+        <ErrorInsightPage />
       </FeatureGate>
     ),
   },

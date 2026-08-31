@@ -532,6 +532,14 @@ function MainLayoutContent({ routeBase = '', demoMode = false }: MainLayoutProps
         icon: sidebarIcons.monitoring,
       }
     : null;
+  const errorInsightNavItem = featureAvailability.requestMonitoringAvailable
+    ? {
+        path: '/monitoring/errors',
+        label: t('nav.error_insight'),
+        shortLabel: navShortLabel('nav.error_insight', t('nav.error_insight')),
+        icon: sidebarIcons.monitoring,
+      }
+    : null;
   const operationNavItems: NavItem[] = [
     {
       path: '/logs',
@@ -563,6 +571,7 @@ function MainLayoutContent({ routeBase = '', demoMode = false }: MainLayoutProps
       dashboardNavItem,
       ...(usageAnalyticsNavItem ? [usageAnalyticsNavItem] : []),
       ...(monitoringNavItem ? [monitoringNavItem] : []),
+      ...(errorInsightNavItem ? [errorInsightNavItem] : []),
     ],
     [
       {
