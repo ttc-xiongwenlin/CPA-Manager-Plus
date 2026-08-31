@@ -23,11 +23,66 @@ describe('normalizeErrorInsightResponse', () => {
     expect(view.recent).toEqual([]);
   });
 
+  it('passes through by_provider and by_model breakdowns', () => {
+    const raw = {
+      classes: [{ class: 'auth', count: 3 }],
+      timeline: [],
+      recent: [],
+      by_provider: [
+        { key: 'openai', class: 'auth', count: 2 },
+        { key: 'anthropic', class: 'network', count: 1 },
+      ],
+      by_model: [
+        { key: 'gpt-4', class: 'timeout', count: 5 },
+      ],
+    };
+    const view = normalizeErrorInsightResponse(raw);
+    expect(view.by_provider).toEqual([
+      { key: 'openai', class: 'auth', count: 2 },
+      { key: 'anthropic', class: 'network', count: 1 },
+    ]);
+    expect(view.by_model).toEqual([
+      { key: 'gpt-4', class: 'timeout', count: 5 },
+    ]);
+  });
+
+  it('drops malformed breakdown rows and defaults to empty arrays', () => {
+    const view = normalizeErrorInsightResponse({
+      classes: [],
+      timeline: [],
+      recent: [],
+      by_provider: [
+        { key: 'openai', class: 'auth', count: 2 },
+        { key: 'anthropic', count: 1 },
+        { class: 'timeout', count: 5 },
+        null,
+      ],
+      by_model: [{ key: 'gpt-4', count: 5 }],
+    });
+    expect(view.by_provider).toEqual([
+      { key: 'openai', class: 'auth', count: 2 },
+    ]);
+    expect(view.by_model).toEqual([]);
+  });
+
+  it('defaults by_provider and by_model to empty arrays when missing', () => {
+    const view = normalizeErrorInsightResponse({
+      classes: [],
+      timeline: [],
+      recent: [],
+    });
+    expect(view.by_provider).toEqual([]);
+    expect(view.by_model).toEqual([]);
+  });
+
+
   it('returns empty view for a non-object payload', () => {
     expect(normalizeErrorInsightResponse('nope')).toEqual({
       classes: [],
       timeline: [],
       recent: [],
+      by_provider: [],
+      by_model: [],
     });
   });
 });

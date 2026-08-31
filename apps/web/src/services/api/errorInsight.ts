@@ -45,15 +45,37 @@ export interface ErrorInsightRecentItem {
   latency_ms?: number;
 }
 
+export interface ErrorInsightBreakdownItem {
+  key: string;
+  class: string;
+  count: number;
+}
+
+export interface ErrorInsightFilters {
+  models?: string[];
+  providers?: string[];
+  accounts?: string[];
+  auth_files?: string[];
+  auth_indices?: string[];
+  api_key_hashes?: string[];
+  source_hashes?: string[];
+  min_latency_ms?: number;
+  bucket_scope?: boolean;
+}
+
 export interface ErrorInsightResponse {
   classes: ErrorInsightClassItem[];
   timeline: ErrorInsightTimelineItem[];
   recent: ErrorInsightRecentItem[];
+  by_provider: ErrorInsightBreakdownItem[];
+  by_model: ErrorInsightBreakdownItem[];
 }
 
 export interface ErrorInsightRequest {
   from_ms: number;
   to_ms: number;
+  search_query?: string;
+  filters?: ErrorInsightFilters;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -93,6 +115,18 @@ const readRecentItem = (value: unknown): ErrorInsightRecentItem | null => {
   return item;
 };
 
+const readBreakdownItem = (value: unknown): ErrorInsightBreakdownItem | null => {
+  if (!isRecord(value)) return null;
+  if (
+    typeof value.key !== 'string' ||
+    typeof value.class !== 'string' ||
+    typeof value.count !== 'number'
+  ) {
+    return null;
+  }
+  return { key: value.key, class: value.class, count: value.count };
+};
+
 const readArray = <T>(value: unknown, read: (entry: unknown) => T | null): T[] => {
   if (!Array.isArray(value)) return [];
   const out: T[] = [];
@@ -104,11 +138,13 @@ const readArray = <T>(value: unknown, read: (entry: unknown) => T | null): T[] =
 };
 
 export function normalizeErrorInsightResponse(raw: unknown): ErrorInsightResponse {
-  if (!isRecord(raw)) return { classes: [], timeline: [], recent: [] };
+  if (!isRecord(raw)) return { classes: [], timeline: [], recent: [], by_provider: [], by_model: [] };
   return {
     classes: readArray(raw.classes, readClassItem),
     timeline: readArray(raw.timeline, readTimelineItem),
     recent: readArray(raw.recent, readRecentItem),
+    by_provider: readArray(raw.by_provider, readBreakdownItem),
+    by_model: readArray(raw.by_model, readBreakdownItem),
   };
 }
 

@@ -27,6 +27,8 @@ describe('buildErrorInsightView', () => {
         { bucket_ms: 3600000, class: 'mystery', count: 2 },
       ],
       recent: [],
+      by_provider: [],
+      by_model: [],
     });
     expect(view.totalFailures).toBe(10);
     expect(view.shares[0]).toEqual({ class: 'rate_limited', count: 6, share: 0.6 });
@@ -40,7 +42,7 @@ describe('buildErrorInsightView', () => {
   });
 
   it('handles an empty window', () => {
-    const view = buildErrorInsightView({ classes: [], timeline: [], recent: [] });
+    const view = buildErrorInsightView({ classes: [], timeline: [], recent: [], by_provider: [], by_model: [] });
     expect(view.totalFailures).toBe(0);
     expect(view.shares).toEqual([]);
     expect(view.timelineSeries).toEqual([]);
