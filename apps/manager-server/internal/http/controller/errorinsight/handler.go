@@ -23,8 +23,43 @@ type Handler struct {
 }
 
 type insightRequest struct {
-	FromMS int64 `json:"from_ms"`
-	ToMS   int64 `json:"to_ms"`
+	FromMS      int64          `json:"from_ms"`
+	ToMS        int64          `json:"to_ms"`
+	SearchQuery string         `json:"search_query"`
+	Filters     insightFilters `json:"filters"`
+}
+
+type insightFilters struct {
+	Models       []string `json:"models"`
+	Providers    []string `json:"providers"`
+	Accounts     []string `json:"accounts"`
+	AuthFiles    []string `json:"auth_files"`
+	AuthIndices  []string `json:"auth_indices"`
+	APIKeyHashes []string `json:"api_key_hashes"`
+	SourceHashes []string `json:"source_hashes"`
+	MinLatencyMS int64    `json:"min_latency_ms"`
+	BucketScope  bool     `json:"bucket_scope"`
+}
+
+// buildInsightFilter maps the request onto store.AnalyticsFilter. It
+// deliberately leaves IncludeFailed and FailedOnly at their zero value: the
+// error-class repo methods (see error_class.go) force failed=1 semantics
+// internally, so this endpoint must not set them.
+func buildInsightFilter(req insightRequest) store.AnalyticsFilter {
+	return store.AnalyticsFilter{
+		FromMS:       req.FromMS,
+		ToMS:         req.ToMS,
+		SearchQuery:  req.SearchQuery,
+		Models:       req.Filters.Models,
+		Providers:    req.Filters.Providers,
+		Accounts:     req.Filters.Accounts,
+		AuthFiles:    req.Filters.AuthFiles,
+		AuthIndices:  req.Filters.AuthIndices,
+		APIKeyHashes: req.Filters.APIKeyHashes,
+		SourceHashes: req.Filters.SourceHashes,
+		MinLatencyMS: req.Filters.MinLatencyMS,
+		BucketScope:  req.Filters.BucketScope,
+	}
 }
 
 type classItem struct {
@@ -129,7 +164,7 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filter := store.AnalyticsFilter{FromMS: req.FromMS, ToMS: req.ToMS}
+	filter := buildInsightFilter(req)
 	ctx := r.Context()
 
 	stats, err := h.App.Store.ErrorClassStatsWithFilter(ctx, filter)

@@ -2,6 +2,7 @@ package errorinsight
 
 import (
 	"database/sql"
+	"reflect"
 	"testing"
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/store"
@@ -29,6 +30,70 @@ func TestValidateWindow(t *testing.T) {
 				t.Fatalf("validateWindow(%d, %d) err = %v, wantErr %v", c.fromMS, c.toMS, err, c.wantErr)
 			}
 		})
+	}
+}
+
+func TestBuildInsightFilterMapsAllFields(t *testing.T) {
+	req := insightRequest{
+		FromMS:      1000,
+		ToMS:        2000,
+		SearchQuery: "timeout",
+		Filters: insightFilters{
+			Models:       []string{"gpt-4"},
+			Providers:    []string{"codex"},
+			Accounts:     []string{"a@b"},
+			AuthFiles:    []string{"auth1.json"},
+			AuthIndices:  []string{"0"},
+			APIKeyHashes: []string{"hash1"},
+			SourceHashes: []string{"srchash1"},
+			MinLatencyMS: 500,
+			BucketScope:  true,
+		},
+	}
+
+	got := buildInsightFilter(req)
+
+	if got.FromMS != req.FromMS {
+		t.Errorf("FromMS = %d, want %d", got.FromMS, req.FromMS)
+	}
+	if got.ToMS != req.ToMS {
+		t.Errorf("ToMS = %d, want %d", got.ToMS, req.ToMS)
+	}
+	if got.SearchQuery != req.SearchQuery {
+		t.Errorf("SearchQuery = %q, want %q", got.SearchQuery, req.SearchQuery)
+	}
+	if !reflect.DeepEqual(got.Models, req.Filters.Models) {
+		t.Errorf("Models = %#v, want %#v", got.Models, req.Filters.Models)
+	}
+	if !reflect.DeepEqual(got.Providers, req.Filters.Providers) {
+		t.Errorf("Providers = %#v, want %#v", got.Providers, req.Filters.Providers)
+	}
+	if !reflect.DeepEqual(got.Accounts, req.Filters.Accounts) {
+		t.Errorf("Accounts = %#v, want %#v", got.Accounts, req.Filters.Accounts)
+	}
+	if !reflect.DeepEqual(got.AuthFiles, req.Filters.AuthFiles) {
+		t.Errorf("AuthFiles = %#v, want %#v", got.AuthFiles, req.Filters.AuthFiles)
+	}
+	if !reflect.DeepEqual(got.AuthIndices, req.Filters.AuthIndices) {
+		t.Errorf("AuthIndices = %#v, want %#v", got.AuthIndices, req.Filters.AuthIndices)
+	}
+	if !reflect.DeepEqual(got.APIKeyHashes, req.Filters.APIKeyHashes) {
+		t.Errorf("APIKeyHashes = %#v, want %#v", got.APIKeyHashes, req.Filters.APIKeyHashes)
+	}
+	if !reflect.DeepEqual(got.SourceHashes, req.Filters.SourceHashes) {
+		t.Errorf("SourceHashes = %#v, want %#v", got.SourceHashes, req.Filters.SourceHashes)
+	}
+	if got.MinLatencyMS != req.Filters.MinLatencyMS {
+		t.Errorf("MinLatencyMS = %d, want %d", got.MinLatencyMS, req.Filters.MinLatencyMS)
+	}
+	if got.BucketScope != req.Filters.BucketScope {
+		t.Errorf("BucketScope = %v, want %v", got.BucketScope, req.Filters.BucketScope)
+	}
+	if got.IncludeFailed != false {
+		t.Errorf("IncludeFailed = %v, want false (repo forces failed=1 semantics)", got.IncludeFailed)
+	}
+	if got.FailedOnly != false {
+		t.Errorf("FailedOnly = %v, want false (repo forces failed=1 semantics)", got.FailedOnly)
 	}
 }
 
