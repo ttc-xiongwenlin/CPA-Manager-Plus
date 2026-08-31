@@ -153,7 +153,7 @@ func TestUsageEventsLatencyIndexCoversModelFilteredRead(t *testing.T) {
 	order by timestamp_ms`
 	plan := strings.Join(explainMonitoringPlan(t, sqlDB, query, int64(1800000000000), "model-a"), "\n")
 
-	if !strings.Contains(plan, "COVERING INDEX idx_usage_events_latency_scope_v2") {
+	if !strings.Contains(plan, "COVERING INDEX idx_usage_events_latency_scope_v3") {
 		t.Fatalf("model-filtered latency read is not covered: %s", plan)
 	}
 }

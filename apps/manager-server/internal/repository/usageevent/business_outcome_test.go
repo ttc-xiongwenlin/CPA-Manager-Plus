@@ -447,7 +447,7 @@ func TestBusinessOutcomeScopedQueryStaysOnCoveringIndexes(t *testing.T) {
 		}
 		details = append(details, detail)
 		coversFold = coversFold || strings.Contains(detail, "COVERING INDEX "+businessOutcomeIndexName)
-		coversProbe = coversProbe || strings.Contains(detail, "COVERING INDEX idx_usage_events_latency_scope_v2")
+		coversProbe = coversProbe || strings.Contains(detail, "COVERING INDEX "+latencyScopeIndexName)
 		// A plain "USING INDEX" (without COVERING) or a table scan means the
 		// query fell back to wide-row lookups: measured 4.4s vs 0.3s per 7d
 		// window on production.

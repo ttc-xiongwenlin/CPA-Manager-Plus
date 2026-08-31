@@ -239,10 +239,16 @@ var derivedIndexStatements = []struct {
 	// coalesce(nullif(requested_model, ''), model, ''); without it a model-filtered
 	// p95 read drops off the covering index and looks up every wide row in the
 	// window. Measured on 945k events: 0.17s covered vs 4.1s uncovered.
-	{"idx_usage_events_latency_scope_v2", "usage_events", `create index if not exists idx_usage_events_latency_scope_v2
+	// v3 appends failed and the cache token columns: the status filter adds
+	// `failed = 0` and the cache filter compares all four cache token columns,
+	// and either condition off the index drags in the wide row. Measured on a
+	// 1.08M-row 18GB usage.sqlite: 32s per 50d window uncovered vs 0.5s covered.
+	{"idx_usage_events_latency_scope_v3", "usage_events", `create index if not exists idx_usage_events_latency_scope_v3
 		on usage_events(
 			timestamp_ms, auth_index, api_key_hash, auth_file_snapshot,
-			source_hash, model, requested_model, latency_ms, ttft_ms)`},
+			source_hash, model, requested_model, latency_ms, ttft_ms,
+			failed, cached_tokens, cache_tokens, cache_read_tokens,
+			cache_creation_tokens)`},
 	// The business outcome reads fold attempts into client requests by
 	// request_id (min/max of failed per group), so they window on
 	// timestamp_ms and carry request_id and failed in the index to stay off

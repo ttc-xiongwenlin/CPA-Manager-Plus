@@ -905,9 +905,23 @@ func (r *repository) LatencyBreakdownWithFilter(ctx context.Context, filter Anal
 	return r.latencyBreakdown(ctx, filter, granularity, location, true, true)
 }
 
+// latencyBreakdownQuery builds the latency sample scan for one filter. Kept
+// separate from the reader so the query-plan tests can pin the exact SQL the
+// production read runs.
+func latencyBreakdownQuery(filter AnalyticsFilter) (string, []any) {
+	where, args := analyticsWhere(filter)
+	return fmt.Sprintf(`select
+	timestamp_ms,
+	coalesce(latency_ms, 0),
+	coalesce(ttft_ms, 0)
+from usage_events %s
+and (latency_ms > 0 or ttft_ms > 0)
+order by timestamp_ms`, where), args
+}
+
 // latencyBreakdown streams the latency samples once and derives the requested
-// aggregates in Go. The projection is covered by
-// idx_usage_events_latency_window, so the scan avoids per-row table lookups.
+// aggregates in Go. The scan is covered by idx_usage_events_latency_scope_v3,
+// so it avoids per-row table lookups.
 func (r *repository) latencyBreakdown(
 	ctx context.Context,
 	filter AnalyticsFilter,
@@ -916,14 +930,7 @@ func (r *repository) latencyBreakdown(
 	withSummary bool,
 	withBuckets bool,
 ) (LatencySummary, []LatencyPercentiles, error) {
-	where, args := analyticsWhere(filter)
-	query := fmt.Sprintf(`select
-	timestamp_ms,
-	coalesce(latency_ms, 0),
-	coalesce(ttft_ms, 0)
-from usage_events %s
-and (latency_ms > 0 or ttft_ms > 0)
-order by timestamp_ms`, where)
+	query, args := latencyBreakdownQuery(filter)
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return LatencySummary{}, nil, err
@@ -1532,6 +1539,12 @@ order by sum(case when failed = 1 then 1 else 0 end) desc, max(timestamp_ms) des
 
 const businessOutcomeIndexName = "idx_usage_events_request_outcome"
 
+// latencyScopeIndexName is the covering index for the latency window scans and
+// the scoped business outcome coverage probe. Like businessOutcomeIndexName it
+// is prepared off the startup path, so readers that pin it must check it
+// exists first.
+const latencyScopeIndexName = "idx_usage_events_latency_scope_v3"
+
 // businessOutcomeTimelineSQL folds attempts into requests by request_id and
 // buckets each request on the UTC hour of its first attempt
 // (min(timestamp_ms)). `indexed by` pins the covering scan: the production
@@ -1572,8 +1585,8 @@ order by bucket_ms`
 // (split) and retried (n_all > 1) request counts so the caller can apply
 // businessOutcomeMaxExcludedShare over retried requests. Both scans stay on
 // covering indexes: the probe runs once as a materialized LIST SUBQUERY over
-// idx_usage_events_latency_scope_v2 (measured 0.3s per 7d window vs 4.4s
-// for the per-row wide-lookup formulation).
+// the latency scope index (measured 0.3s per 7d window vs 4.4s for the
+// per-row wide-lookup formulation).
 const businessOutcomeScopedTimelineSQL = `select
 	first_ts / 3600000 * 3600000 as bucket_ms,
 	coalesce(sum(case when %[1]s then 1 else 0 end), 0),
@@ -1587,7 +1600,7 @@ from (
 		min(e.failed) as all_failed,
 		max(e.failed) as any_failed,
 		count(*) as n_all,
-		sum(e.id in (select id from usage_events indexed by idx_usage_events_latency_scope_v2 %[2]s)) as n_in
+		sum(e.id in (select id from usage_events indexed by ` + latencyScopeIndexName + ` %[2]s)) as n_in
 	from usage_events e indexed by ` + businessOutcomeIndexName + `
 	where e.timestamp_ms >= ? and e.timestamp_ms < ?
 	group by coalesce(nullif(e.request_id, ''), 'event:' || e.id)
@@ -1606,9 +1619,9 @@ order by bucket_ms`
 //   - Attempt-visibility conditions (failed-only, min latency, cache status,
 //     include_failed=false) hide individual attempts, which corrupts the
 //     per-request attempt count the coverage check compares against.
-//   - Dimensions absent from idx_usage_events_latency_scope_v2 (provider,
-//     account snapshot, credential id, project, request type, headers, full
-//     text search) would drop the coverage probe off its covering index into
+//   - Dimensions absent from the latency scope index (provider, account
+//     snapshot, credential id, project, request type, headers, full text
+//     search) would drop the coverage probe off its covering index into
 //     wide-row lookups (measured 4.4s vs 0.3s per 7d window).
 func BusinessOutcomeSupportsFilter(filter AnalyticsFilter) bool {
 	return strings.TrimSpace(filter.SearchQuery) == "" &&
@@ -1713,6 +1726,18 @@ func (r *repository) BusinessOutcomeTimelineWithFilter(ctx context.Context, filt
 			return nil, false, err
 		}
 		return hourRows, true, nil
+	}
+
+	// The scoped variant also pins the latency scope index for its coverage
+	// probe, and that index is prepared off the startup path too: during the
+	// v2 to v3 upgrade window it may not exist yet.
+	if err := r.db.QueryRowContext(ctx,
+		`select count(*) from sqlite_master where type = 'index' and name = ?`,
+		latencyScopeIndexName).Scan(&indexCount); err != nil {
+		return nil, false, err
+	}
+	if indexCount == 0 {
+		return nil, false, nil
 	}
 
 	// The coverage probe reuses analyticsWhere so its conditions (and its
