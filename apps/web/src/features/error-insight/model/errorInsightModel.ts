@@ -67,7 +67,12 @@ export interface ErrorInsightView {
 }
 
 const TIMELINE_BUCKET_MS = 60 * 60 * 1000;
-const MAX_TIMELINE_BUCKETS = 336; // 14d window cap; legacy stragglers get truncated.
+// The 14d preset spans 336 hourly *intervals*, but buckets are inclusive of
+// both the (hour-floored) window start and the window end, so the fencepost
+// count of bucket starts is 336 + 1 = 337 (e.g. a 2h window yields buckets at
+// +0h, +1h, +2h - 3 starts for 2 intervals). The cap must fit the worst
+// legitimate case exactly, so it's 14*24 + 1, not 14*24.
+const MAX_TIMELINE_BUCKETS = 14 * 24 + 1; // 337
 
 // Classes that indicate the failure originated upstream (provider outage or
 // transport failure) rather than on the client side.

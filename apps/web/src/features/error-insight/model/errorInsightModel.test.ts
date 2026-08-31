@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ERROR_INSIGHT_MAX_WINDOW_MS } from '@/services/api/errorInsight';
 import {
   buildBreakdownView,
   buildErrorInsightView,
@@ -75,14 +76,35 @@ describe('buildErrorInsightView', () => {
     expect(timeoutSeries?.data).toEqual([1, 0, 0]);
   });
 
-  it('aligns the bucket start down to the hour and truncates the tail beyond the 336 bucket cap', () => {
+  it('aligns the bucket start down to the hour and truncates the tail beyond the 337 bucket cap', () => {
     const halfHourIntoTheHour = 30 * 60 * 1000;
+    // 400 hourly intervals well past the 14d preset - a genuine contract
+    // violation that must actually truncate.
     const view = buildErrorInsightView(
       { classes: [], timeline: [], recent: [], by_provider: [], by_model: [] },
       { fromMs: halfHourIntoTheHour, toMs: halfHourIntoTheHour + 400 * 3600000 }
     );
     expect(view.timelineBuckets[0]).toBe(0);
-    expect(view.timelineBuckets.length).toBe(336);
+    expect(view.timelineBuckets.length).toBe(337);
+  });
+
+  it('produces exactly 337 buckets for the real 14d preset boundary, with no truncation', () => {
+    // windowMs is an exact multiple of the hour (14d) but toMs itself is NOT
+    // hour-aligned - this is the real shape of a live "now" request, and the
+    // regression this guards against: 336 hourly intervals is a fencepost of
+    // 337 bucket starts, not 336, so this must NOT get truncated.
+    const toMs = Date.UTC(2026, 0, 15, 9, 23, 41, 500); // arbitrary, not on the hour
+    const fromMs = toMs - ERROR_INSIGHT_MAX_WINDOW_MS;
+    const view = buildErrorInsightView(
+      { classes: [], timeline: [], recent: [], by_provider: [], by_model: [] },
+      { fromMs, toMs }
+    );
+    expect(view.timelineBuckets.length).toBe(337);
+    const hourMs = 3600000;
+    const expectedLastBucket = Math.floor(toMs / hourMs) * hourMs;
+    expect(view.timelineBuckets[view.timelineBuckets.length - 1]).toBe(expectedLastBucket);
+    const expectedFirstBucket = Math.floor(fromMs / hourMs) * hourMs;
+    expect(view.timelineBuckets[0]).toBe(expectedFirstBucket);
   });
 });
 
