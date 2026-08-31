@@ -3192,6 +3192,7 @@
     "col_status": "状态码",
     "col_model": "模型",
     "col_account": "账号",
+    "col_provider": "提供商",
     "col_summary": "摘要",
     "window": { "1h": "1h", "6h": "6h", "24h": "24h", "3d": "3d", "7d": "7d", "14d": "14d" },
     "class": {
@@ -3206,7 +3207,23 @@
       "invalid_request": "无效请求",
       "auth": "鉴权失败",
       "other": "其他"
-    }
+    },
+    "filter_model": "模型",
+    "filter_provider": "提供商",
+    "filter_api_key": "API Key",
+    "filter_bucket": "桶",
+    "filter_auth_file": "认证文件",
+    "filter_all": "全部",
+    "search_placeholder": "搜索账号/模型/Key…",
+    "clear_filters": "清除筛选",
+    "advanced": "高级筛选",
+    "kpi_total": "失败总数",
+    "kpi_top_class": "最大类别",
+    "kpi_upstream_share": "上游侧占比",
+    "kpi_canceled_share": "客户端取消占比",
+    "breakdown_provider": "按提供商",
+    "breakdown_model": "按模型",
+    "class_selected_hint": "已筛选 {{class}}，再次点击取消"
   },
   "logs": {
     "title": "日志查看",

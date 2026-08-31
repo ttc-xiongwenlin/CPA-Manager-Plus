@@ -3194,6 +3194,7 @@
     "col_status": "Status",
     "col_model": "Model",
     "col_account": "Account",
+    "col_provider": "Provider",
     "col_summary": "Summary",
     "window": { "1h": "1h", "6h": "6h", "24h": "24h", "3d": "3d", "7d": "7d", "14d": "14d" },
     "class": {
@@ -3208,7 +3209,23 @@
       "invalid_request": "Invalid request",
       "auth": "Auth",
       "other": "Other"
-    }
+    },
+    "filter_model": "Model",
+    "filter_provider": "Provider",
+    "filter_api_key": "API Key",
+    "filter_bucket": "Bucket",
+    "filter_auth_file": "Auth file",
+    "filter_all": "All",
+    "search_placeholder": "Search account / model / key…",
+    "clear_filters": "Clear filters",
+    "advanced": "Advanced",
+    "kpi_total": "Total failures",
+    "kpi_top_class": "Top class",
+    "kpi_upstream_share": "Upstream-side share",
+    "kpi_canceled_share": "Client-canceled share",
+    "breakdown_provider": "Failures by provider",
+    "breakdown_model": "Failures by model",
+    "class_selected_hint": "Showing only {{class}} — click again to clear"
   },
   "logs": {
     "title": "Logs Viewer",

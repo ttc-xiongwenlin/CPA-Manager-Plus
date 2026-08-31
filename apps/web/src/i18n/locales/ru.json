@@ -3195,6 +3195,7 @@
     "col_status": "Статус",
     "col_model": "Модель",
     "col_account": "Аккаунт",
+    "col_provider": "Провайдер",
     "col_summary": "Сводка",
     "window": { "1h": "1ч", "6h": "6ч", "24h": "24ч", "3d": "3д", "7d": "7д", "14d": "14д" },
     "class": {
@@ -3209,7 +3210,23 @@
       "invalid_request": "Неверный запрос",
       "auth": "Ошибка авторизации",
       "other": "Прочее"
-    }
+    },
+    "filter_model": "Модель",
+    "filter_provider": "Провайдер",
+    "filter_api_key": "API-ключ",
+    "filter_bucket": "Бакет",
+    "filter_auth_file": "Файл авторизации",
+    "filter_all": "Все",
+    "search_placeholder": "Поиск: аккаунт / модель / ключ…",
+    "clear_filters": "Сбросить фильтры",
+    "advanced": "Расширенные",
+    "kpi_total": "Всего сбоев",
+    "kpi_top_class": "Основной класс",
+    "kpi_upstream_share": "Доля апстрима",
+    "kpi_canceled_share": "Доля отмен клиентом",
+    "breakdown_provider": "По провайдерам",
+    "breakdown_model": "По моделям",
+    "class_selected_hint": "Показан только {{class}} — нажмите ещё раз, чтобы сбросить"
   },
   "logs": {
     "title": "Просмотр журналов",

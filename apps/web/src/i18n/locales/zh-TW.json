@@ -3192,6 +3192,7 @@
     "col_status": "狀態碼",
     "col_model": "模型",
     "col_account": "帳號",
+    "col_provider": "供應商",
     "col_summary": "摘要",
     "window": { "1h": "1h", "6h": "6h", "24h": "24h", "3d": "3d", "7d": "7d", "14d": "14d" },
     "class": {
@@ -3206,7 +3207,23 @@
       "invalid_request": "無效請求",
       "auth": "鑑權失敗",
       "other": "其他"
-    }
+    },
+    "filter_model": "模型",
+    "filter_provider": "供應商",
+    "filter_api_key": "API Key",
+    "filter_bucket": "桶",
+    "filter_auth_file": "認證檔案",
+    "filter_all": "全部",
+    "search_placeholder": "搜尋帳號/模型/Key…",
+    "clear_filters": "清除篩選",
+    "advanced": "進階篩選",
+    "kpi_total": "失敗總數",
+    "kpi_top_class": "最大類別",
+    "kpi_upstream_share": "上游側佔比",
+    "kpi_canceled_share": "用戶端取消佔比",
+    "breakdown_provider": "按供應商",
+    "breakdown_model": "按模型",
+    "class_selected_hint": "已篩選 {{class}}，再次點擊取消"
   },
   "logs": {
     "title": "記錄檢視",
