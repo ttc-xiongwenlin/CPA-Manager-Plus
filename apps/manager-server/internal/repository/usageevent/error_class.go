@@ -2,6 +2,7 @@ package usageevent
 
 import (
 	"context"
+	"database/sql"
 )
 
 // errorClassExpression buckets one failed usage event into a stable error
@@ -35,7 +36,7 @@ type ErrorClassStat struct {
 func (r *repository) ErrorClassStatsWithFilter(ctx context.Context, filter AnalyticsFilter) ([]ErrorClassStat, error) {
 	// Make a copy to avoid modifying caller's filter
 	f := filter
-	f.IncludeFailed = true  // Prevent analyticsWhere from adding "failed = 0"
+	f.IncludeFailed = true // Prevent analyticsWhere from adding "failed = 0"
 
 	where, args := analyticsWhere(f)
 	rows, err := r.db.QueryContext(ctx, `select `+errorClassExpression+` as class, count(*)
@@ -56,4 +57,98 @@ order by count(*) desc`, args...)
 		stats = append(stats, stat)
 	}
 	return stats, rows.Err()
+}
+
+// ErrorClassTimelinePoint is one (UTC hour bucket, class) cell of the error
+// timeline. Hour granularity is fine for the 14-day window cap (<= 336
+// buckets); the frontend folds hours into days for wider presets.
+type ErrorClassTimelinePoint struct {
+	BucketMS int64
+	Class    string
+	Count    int64
+}
+
+func (r *repository) ErrorClassTimelineWithFilter(ctx context.Context, filter AnalyticsFilter) ([]ErrorClassTimelinePoint, error) {
+	f := filter
+	f.IncludeFailed = true // Prevent analyticsWhere from adding "failed = 0"
+	where, args := analyticsWhere(f)
+	rows, err := r.db.QueryContext(ctx, `select
+	timestamp_ms / 3600000 * 3600000 as bucket_ms,
+	`+errorClassExpression+` as class,
+	count(*)
+from usage_events `+where+` and failed = 1
+group by bucket_ms, class
+order by bucket_ms`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	points := make([]ErrorClassTimelinePoint, 0)
+	for rows.Next() {
+		var point ErrorClassTimelinePoint
+		if err := rows.Scan(&point.BucketMS, &point.Class, &point.Count); err != nil {
+			return nil, err
+		}
+		points = append(points, point)
+	}
+	return points, rows.Err()
+}
+
+// ErrorClassRecentFailure is one recent failed event with its class label,
+// trimmed to what the error insight page renders.
+type ErrorClassRecentFailure struct {
+	Class       string
+	TimestampMS int64
+	StatusCode  sql.NullInt64
+	Model       string
+	Account     string
+	Provider    string
+	Summary     string
+	LatencyMS   sql.NullInt64
+}
+
+func (r *repository) ErrorClassRecentWithFilter(ctx context.Context, filter AnalyticsFilter, limit int) ([]ErrorClassRecentFailure, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	f := filter
+	f.IncludeFailed = true // Prevent analyticsWhere from adding "failed = 0"
+	where, args := analyticsWhere(f)
+	args = append(args, limit)
+	rows, err := r.db.QueryContext(ctx, `select
+	`+errorClassExpression+` as class,
+	timestamp_ms,
+	fail_status_code,
+	coalesce(nullif(requested_model, ''), model),
+	coalesce(account_snapshot, ''),
+	coalesce(nullif(auth_provider_snapshot, ''), coalesce(provider, '')),
+	coalesce(substr(fail_summary, 1, 300), ''),
+	latency_ms
+from usage_events `+where+` and failed = 1
+order by timestamp_ms desc, id desc
+limit ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	failures := make([]ErrorClassRecentFailure, 0, limit)
+	for rows.Next() {
+		var failure ErrorClassRecentFailure
+		if err := rows.Scan(
+			&failure.Class,
+			&failure.TimestampMS,
+			&failure.StatusCode,
+			&failure.Model,
+			&failure.Account,
+			&failure.Provider,
+			&failure.Summary,
+			&failure.LatencyMS,
+		); err != nil {
+			return nil, err
+		}
+		failures = append(failures, failure)
+	}
+	return failures, rows.Err()
 }

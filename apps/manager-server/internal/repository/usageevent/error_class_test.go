@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -108,5 +109,76 @@ func TestErrorClassStatsClassification(t *testing.T) {
 		if got[class] != count {
 			t.Errorf("class %s = %d, want %d (map: %#v)", class, got[class], count, got)
 		}
+	}
+}
+
+func TestErrorClassTimelineBucketsByHour(t *testing.T) {
+	repo := newErrorClassTestRepo(t)
+	base := time.Date(2026, time.August, 1, 10, 0, 0, 0, time.UTC)
+
+	insertFailedEvent(t, repo, "tl-1", base.Add(5*time.Minute), 429, "")
+	insertFailedEvent(t, repo, "tl-2", base.Add(10*time.Minute), 429, "")
+	insertFailedEvent(t, repo, "tl-3", base.Add(20*time.Minute), 502, "")
+	insertFailedEvent(t, repo, "tl-4", base.Add(70*time.Minute), 429, "")
+
+	points, err := repo.ErrorClassTimelineWithFilter(context.Background(), AnalyticsFilter{
+		FromMS: base.UnixMilli(),
+		ToMS:   base.Add(2 * time.Hour).UnixMilli(),
+	})
+	if err != nil {
+		t.Fatalf("timeline: %v", err)
+	}
+
+	hour0 := base.UnixMilli()
+	hour1 := base.Add(time.Hour).UnixMilli()
+	got := map[[2]int64]map[string]int64{}
+	for _, p := range points {
+		key := [2]int64{p.BucketMS, 0}
+		if got[key] == nil {
+			got[key] = map[string]int64{}
+		}
+		got[key][p.Class] += p.Count
+	}
+	if got[[2]int64{hour0, 0}]["rate_limited"] != 2 {
+		t.Errorf("hour0 rate_limited = %d, want 2", got[[2]int64{hour0, 0}]["rate_limited"])
+	}
+	if got[[2]int64{hour0, 0}]["upstream_error"] != 1 {
+		t.Errorf("hour0 upstream_error = %d, want 1", got[[2]int64{hour0, 0}]["upstream_error"])
+	}
+	if got[[2]int64{hour1, 0}]["rate_limited"] != 1 {
+		t.Errorf("hour1 rate_limited = %d, want 1", got[[2]int64{hour1, 0}]["rate_limited"])
+	}
+}
+
+func TestErrorClassRecentOrdersAndTruncates(t *testing.T) {
+	repo := newErrorClassTestRepo(t)
+	base := time.Date(2026, time.August, 1, 10, 0, 0, 0, time.UTC)
+
+	long := strings.Repeat("x", 500)
+	insertFailedEvent(t, repo, "rc-1", base.Add(1*time.Minute), 500, "dial tcp: lookup example.com: no such host")
+	insertFailedEvent(t, repo, "rc-2", base.Add(2*time.Minute), 429, long)
+	insertFailedEvent(t, repo, "rc-3", base.Add(3*time.Minute), 401, "")
+
+	recent, err := repo.ErrorClassRecentWithFilter(context.Background(), AnalyticsFilter{
+		FromMS: base.UnixMilli(),
+		ToMS:   base.Add(time.Hour).UnixMilli(),
+	}, 2)
+	if err != nil {
+		t.Fatalf("recent: %v", err)
+	}
+	if len(recent) != 2 {
+		t.Fatalf("len(recent) = %d, want 2", len(recent))
+	}
+	if recent[0].Class != "auth" {
+		t.Errorf("recent[0].Class = %q, want auth (newest first)", recent[0].Class)
+	}
+	if recent[1].Class != "rate_limited" {
+		t.Errorf("recent[1].Class = %q, want rate_limited", recent[1].Class)
+	}
+	if len(recent[1].Summary) != 300 {
+		t.Errorf("summary length = %d, want 300 (truncated)", len(recent[1].Summary))
+	}
+	if !recent[0].StatusCode.Valid || recent[0].StatusCode.Int64 != 401 {
+		t.Errorf("recent[0].StatusCode = %#v, want 401", recent[0].StatusCode)
 	}
 }

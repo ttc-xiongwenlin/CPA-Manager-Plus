@@ -47,6 +47,8 @@ type Repository interface {
 	TaskBucketsWithFilter(ctx context.Context, filter AnalyticsFilter) ([]TaskBucket, error)
 	RecentFailuresWithFilter(ctx context.Context, filter AnalyticsFilter, limit int) ([]RecentFailure, error)
 	ErrorClassStatsWithFilter(ctx context.Context, filter AnalyticsFilter) ([]ErrorClassStat, error)
+	ErrorClassTimelineWithFilter(ctx context.Context, filter AnalyticsFilter) ([]ErrorClassTimelinePoint, error)
+	ErrorClassRecentWithFilter(ctx context.Context, filter AnalyticsFilter, limit int) ([]ErrorClassRecentFailure, error)
 	EventsPageWithFilter(ctx context.Context, filter AnalyticsFilter, beforeMS int64, beforeID int64, limit int) (EventsPage, error)
 	EventsCountWithFilter(ctx context.Context, filter AnalyticsFilter) (int64, error)
 	LatestHeaderSnapshots(ctx context.Context, sinceMS int64, limit int) ([]HeaderSnapshot, error)
