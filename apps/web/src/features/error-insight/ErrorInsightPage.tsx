@@ -41,7 +41,7 @@ export function ErrorInsightPage() {
   const { t } = useTranslation();
   const managementKey = useAuthStore((state) => state.managementKey);
   const availability = useRequestMonitoringAvailability();
-  const { status, view, windowMs, setWindowMs, refresh } = useErrorInsight({
+  const { status, view, filters, setFilters, refresh } = useErrorInsight({
     serviceBase: availability.serviceBase,
     managementKey,
   });
@@ -60,8 +60,8 @@ export function ErrorInsightPage() {
             <button
               key={preset.key}
               type="button"
-              className={preset.ms === windowMs ? styles.presetActive : styles.preset}
-              onClick={() => setWindowMs(preset.ms)}
+              className={preset.key === filters.windowKey ? styles.presetActive : styles.preset}
+              onClick={() => setFilters({ windowKey: preset.key })}
             >
               {t(`error_insight.window.${preset.key}`)}
             </button>
