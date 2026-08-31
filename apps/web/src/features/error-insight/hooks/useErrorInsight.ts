@@ -46,7 +46,7 @@ export function useErrorInsight({ serviceBase, managementKey }: UseErrorInsightO
           controller.signal
         );
         if (controller.signal.aborted) return;
-        setView(buildErrorInsightView(response));
+        setView(buildErrorInsightView(response, { fromMs: toMs - windowMs, toMs }));
         setStatus('ready');
       } catch {
         if (controller.signal.aborted) return;

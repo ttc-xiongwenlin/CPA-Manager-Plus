@@ -2,6 +2,7 @@ import {
   ERROR_CLASSES,
   ERROR_INSIGHT_MAX_WINDOW_MS,
   type ErrorClass,
+  type ErrorInsightBreakdownItem,
   type ErrorInsightResponse,
 } from '@/services/api/errorInsight';
 
@@ -42,15 +43,74 @@ export interface ErrorClassShare {
   share: number;
 }
 
+export interface ErrorInsightKpis {
+  totalFailures: number;
+  topClass: ErrorClass | null;
+  topShare: number;
+  upstreamShare: number;
+  canceledShare: number;
+}
+
+export interface ErrorInsightWindowBounds {
+  fromMs: number;
+  toMs: number;
+}
+
 export interface ErrorInsightView {
   totalFailures: number;
   shares: ErrorClassShare[];
+  donutData: ErrorClassShare[];
   timelineBuckets: number[];
   timelineSeries: { class: ErrorClass; data: number[] }[];
+  kpis: ErrorInsightKpis;
   recent: ErrorInsightResponse['recent'];
 }
 
-export function buildErrorInsightView(response: ErrorInsightResponse): ErrorInsightView {
+const TIMELINE_BUCKET_MS = 60 * 60 * 1000;
+const MAX_TIMELINE_BUCKETS = 336; // 14d window cap; legacy stragglers get truncated.
+
+// Classes that indicate the failure originated upstream (provider outage or
+// transport failure) rather than on the client side.
+const UPSTREAM_CLASSES = new Set<ErrorClass>([
+  'upstream_overloaded',
+  'upstream_error',
+  'stream_aborted',
+  'timeout',
+]);
+
+function buildZeroFilledBuckets(fromMs: number, toMs: number): number[] {
+  const start = Math.floor(fromMs / TIMELINE_BUCKET_MS) * TIMELINE_BUCKET_MS;
+  if (toMs < start) return [];
+  const rawCount = Math.floor((toMs - start) / TIMELINE_BUCKET_MS) + 1;
+  console.assert(
+    rawCount <= MAX_TIMELINE_BUCKETS,
+    `error-insight: timeline bucket count ${rawCount} exceeds cap ${MAX_TIMELINE_BUCKETS}; truncating tail`
+  );
+  const count = Math.min(rawCount, MAX_TIMELINE_BUCKETS);
+  return Array.from({ length: count }, (_, index) => start + index * TIMELINE_BUCKET_MS);
+}
+
+function computeKpis(shares: ErrorClassShare[], total: number): ErrorInsightKpis {
+  let upstreamCount = 0;
+  let canceledCount = 0;
+  for (const share of shares) {
+    if (UPSTREAM_CLASSES.has(share.class)) upstreamCount += share.count;
+    if (share.class === 'client_canceled') canceledCount += share.count;
+  }
+  const top = total > 0 ? shares[0] : undefined;
+  return {
+    totalFailures: total,
+    topClass: top ? top.class : null,
+    topShare: top ? top.share : 0,
+    upstreamShare: total > 0 ? upstreamCount / total : 0,
+    canceledShare: total > 0 ? canceledCount / total : 0,
+  };
+}
+
+export function buildErrorInsightView(
+  response: ErrorInsightResponse,
+  windowBounds: ErrorInsightWindowBounds
+): ErrorInsightView {
   const counts = new Map<ErrorClass, number>();
   let total = 0;
   for (const item of response.classes) {
@@ -66,7 +126,7 @@ export function buildErrorInsightView(response: ErrorInsightResponse): ErrorInsi
     }))
     .sort((a, b) => b.count - a.count);
 
-  const buckets = [...new Set(response.timeline.map((p) => p.bucket_ms))].sort((a, b) => a - b);
+  const buckets = buildZeroFilledBuckets(windowBounds.fromMs, windowBounds.toMs);
   const bucketIndex = new Map(buckets.map((bucket, index) => [bucket, index]));
   const seriesMap = new Map<ErrorClass, number[]>();
   for (const point of response.timeline) {
@@ -87,8 +147,49 @@ export function buildErrorInsightView(response: ErrorInsightResponse): ErrorInsi
   return {
     totalFailures: total,
     shares,
+    donutData: shares,
     timelineBuckets: buckets,
     timelineSeries,
+    kpis: computeKpis(shares, total),
     recent: response.recent,
   };
+}
+
+export interface ErrorInsightBreakdownView {
+  keys: string[];
+  series: { class: ErrorClass; data: number[] }[];
+}
+
+export function buildBreakdownView(items: ErrorInsightBreakdownItem[]): ErrorInsightBreakdownView {
+  const totalsByKey = new Map<string, number>();
+  const keyOrder: string[] = [];
+  for (const item of items) {
+    if (!totalsByKey.has(item.key)) {
+      totalsByKey.set(item.key, 0);
+      keyOrder.push(item.key);
+    }
+    totalsByKey.set(item.key, (totalsByKey.get(item.key) ?? 0) + item.count);
+  }
+  const keys = [...keyOrder].sort(
+    (a, b) => (totalsByKey.get(b) ?? 0) - (totalsByKey.get(a) ?? 0)
+  );
+  const keyIndex = new Map(keys.map((key, index) => [key, index]));
+
+  const seriesMap = new Map<ErrorClass, number[]>();
+  for (const item of items) {
+    const cls = foldClass(item.class);
+    let data = seriesMap.get(cls);
+    if (!data) {
+      data = new Array<number>(keys.length).fill(0);
+      seriesMap.set(cls, data);
+    }
+    const index = keyIndex.get(item.key);
+    if (index !== undefined) data[index] += item.count;
+  }
+  const series = ERROR_CLASSES.filter((cls) => seriesMap.has(cls)).map((cls) => ({
+    class: cls,
+    data: seriesMap.get(cls) as number[],
+  }));
+
+  return { keys, series };
 }
