@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -32,6 +33,14 @@ func OpenWithOptions(options Options) (*sql.DB, error) {
 	if err := Migrate(db); err != nil {
 		_ = db.Close()
 		return nil, err
+	}
+	// Keep sqlite_stat1 current so the planner can pick the covering indexes
+	// without an `indexed by` pin. Without statistics the unpinned monitoring
+	// reads fall back to wide-row scans (measured seconds per request on the
+	// production database). `pragma optimize` self-limits analysis to sampling
+	// and is a no-op when statistics are still fresh, so startup stays cheap.
+	if _, err := db.Exec(`pragma optimize`); err != nil {
+		log.Printf("sqlite: pragma optimize failed: %v", err)
 	}
 	return db, nil
 }
