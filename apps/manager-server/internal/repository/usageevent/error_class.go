@@ -61,7 +61,7 @@ order by count(*) desc`, args...)
 
 // ErrorClassTimelinePoint is one (UTC hour bucket, class) cell of the error
 // timeline. Hour granularity is fine for the 14-day window cap (<= 336
-// buckets); the frontend folds hours into days for wider presets.
+// buckets).
 type ErrorClassTimelinePoint struct {
 	BucketMS int64
 	Class    string

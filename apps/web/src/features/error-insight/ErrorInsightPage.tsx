@@ -12,7 +12,7 @@ import {
 } from './model/errorInsightModel';
 import styles from './ErrorInsightPage.module.scss';
 
-function buildTimelineOption(view: ErrorInsightView): EChartsCoreOption {
+function buildTimelineOption(view: ErrorInsightView, labelFor: (cls: string) => string): EChartsCoreOption {
   return {
     tooltip: { trigger: 'axis' },
     grid: { left: 48, right: 16, top: 24, bottom: 32 },
@@ -30,7 +30,7 @@ function buildTimelineOption(view: ErrorInsightView): EChartsCoreOption {
     series: view.timelineSeries.map((series) => ({
       type: 'bar',
       stack: 'errors',
-      name: series.class,
+      name: labelFor(series.class),
       data: series.data,
       itemStyle: { color: ERROR_CLASS_COLORS[series.class] },
     })),
@@ -47,8 +47,8 @@ export function ErrorInsightPage() {
   });
 
   const timelineOption = useMemo(
-    () => (view && view.timelineBuckets.length > 0 ? buildTimelineOption(view) : null),
-    [view]
+    () => (view && view.timelineBuckets.length > 0 ? buildTimelineOption(view, (cls) => t(`error_insight.class.${cls}`, cls)) : null),
+    [view, t]
   );
 
   return (
