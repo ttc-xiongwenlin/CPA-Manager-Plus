@@ -162,9 +162,10 @@ export function buildErrorInsightView(
     donutData: shares,
     timelineBuckets: buckets,
     timelineSeries,
-    // by_provider/by_model breakdowns reuse the same helper the
-    // per-key charts call directly, so the shape stays identical whether a
-    // caller reads it off `view` or builds it itself from raw items.
+    // by_provider/by_model breakdowns both go through buildBreakdownView
+    // below; the page renders them straight off view.byProvider/view.byModel
+    // (ErrorInsightPage.tsx's buildBreakdownOption), it doesn't call the
+    // helper itself.
     byProvider: buildBreakdownView(response.by_provider),
     byModel: buildBreakdownView(response.by_model),
     kpis: computeKpis(shares, total),

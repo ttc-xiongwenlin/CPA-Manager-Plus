@@ -14,6 +14,7 @@ import {
   IconTriangleAlert,
   IconX,
 } from '@/components/ui/icons';
+import { UNTAGGED_BUCKET_FILTER } from '@/features/authFiles/bucketOptions';
 import { useRequestMonitoringAvailability } from '@/hooks/useRequestMonitoringAvailability';
 import { useAuthStore } from '@/stores';
 import { useErrorInsight } from './hooks/useErrorInsight';
@@ -329,8 +330,12 @@ export function ErrorInsightPage() {
     [allOption, options.apiKeys]
   );
   const bucketOptions = useMemo<SelectOption[]>(
-    () => [allOption, ...options.buckets],
-    [allOption, options.buckets]
+    () => [
+      allOption,
+      ...options.buckets,
+      { value: UNTAGGED_BUCKET_FILTER, label: t('auth_files.bucket_filter_untagged') },
+    ],
+    [allOption, options.buckets, t]
   );
   const authFileOptions = useMemo<SelectOption[]>(
     () => [allOption, ...options.authFiles.map((name) => ({ value: name, label: name }))],

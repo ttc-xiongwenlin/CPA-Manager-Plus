@@ -123,21 +123,21 @@ export function useErrorInsight({ serviceBase, managementKey }: UseErrorInsightO
   const [selectorsToMs, setSelectorsToMs] = useState(() => Date.now());
   const controllerRef = useRef<AbortController | null>(null);
 
-  const loadMonitoringMeta = useCallback(async () => {
-    try {
-      const payload = await loadMonitoringMetaPayload(config);
-      setAuthFiles(payload.authFiles);
-    } catch {
-      setAuthFiles([]);
-    }
+  // Fetch-only: returns the resolved auth files rather than setting state
+  // itself, so every caller controls its own cancellation/error handling
+  // (the mount effect below guards with `cancelled`; react-hooks/set-state-in-effect
+  // also wants the setState call written directly in the effect's own
+  // then/catch, not hidden behind a shared function).
+  const loadMonitoringMeta = useCallback(async (): Promise<AuthFileItem[]> => {
+    const payload = await loadMonitoringMetaPayload(config);
+    return payload.authFiles;
   }, [config]);
 
   useEffect(() => {
     let cancelled = false;
-    loadMonitoringMetaPayload(config)
-      .then((payload) => {
-        if (cancelled) return;
-        setAuthFiles(payload.authFiles);
+    loadMonitoringMeta()
+      .then((authFiles) => {
+        if (!cancelled) setAuthFiles(authFiles);
       })
       .catch(() => {
         if (!cancelled) setAuthFiles([]);
@@ -145,7 +145,7 @@ export function useErrorInsight({ serviceBase, managementKey }: UseErrorInsightO
     return () => {
       cancelled = true;
     };
-  }, [config]);
+  }, [loadMonitoringMeta]);
 
   const authMetaMap = useMemo(() => buildMonitoringAuthMetaMap(authFiles), [authFiles]);
   const bucketOptionNames = useAuthFilesBucketOptions(authFiles);
@@ -167,19 +167,27 @@ export function useErrorInsight({ serviceBase, managementKey }: UseErrorInsightO
       ),
     [filters.model, filters.provider, filters.apiKeyHash, filters.bucket, filters.authFile, authMetaMap]
   );
+  // authMetaMap is rebuilt (new object identity) whenever loadMonitoringMeta
+  // resolves, even when the resulting auth files are unchanged, which would
+  // otherwise re-identity-churn requestFilters and refire the fetch effect
+  // below on every mount/refresh. Keying on the JSON value (stableJson
+  // pattern from useMonitoringAnalytics.ts) means the effect only reacts to
+  // an actual change in the resolved request payload.
+  const requestFiltersKey = useMemo(() => JSON.stringify(requestFilters), [requestFilters]);
 
   const refresh = useCallback(() => {
     setGeneration((value) => value + 1);
     setSelectorsToMs(Date.now());
-    void loadMonitoringMeta();
+    loadMonitoringMeta()
+      .then((authFiles) => setAuthFiles(authFiles))
+      .catch(() => setAuthFiles([]));
   }, [loadMonitoringMeta]);
 
   const setFilters = useCallback((patch: Partial<ErrorInsightFiltersState>) => {
-    setFiltersState((current) => {
-      const next = { ...current, ...patch };
-      writeErrorInsightUiState(next);
-      return next;
-    });
+    // Persistence happens in the sync effect below (runs on every `filters`
+    // change), not here — a functional updater must stay pure, and
+    // StrictMode double-invokes it, which would double-write storage.
+    setFiltersState((current) => ({ ...current, ...patch }));
     // windowKey drives the selector query's time bounds too — refresh its
     // anchor here rather than in a synchronizing effect (React discourages
     // calling setState from an effect body for values that only need to
@@ -223,6 +231,10 @@ export function useErrorInsight({ serviceBase, managementKey }: UseErrorInsightO
     setStatus('loading');
     const toMs = Date.now();
     const fromMs = toMs - windowMs;
+    // Re-derived from requestFiltersKey rather than closing over requestFilters
+    // directly, so the effect's only filters-related dependency is the value
+    // key (see the comment where requestFiltersKey is computed).
+    const currentRequestFilters = JSON.parse(requestFiltersKey) as ErrorInsightFilters;
     void (async () => {
       try {
         const response = await errorInsightApi.fetch(
@@ -232,7 +244,9 @@ export function useErrorInsight({ serviceBase, managementKey }: UseErrorInsightO
             from_ms: fromMs,
             to_ms: toMs,
             ...(debouncedSearchQuery ? { search_query: debouncedSearchQuery } : {}),
-            ...(Object.keys(requestFilters).length > 0 ? { filters: requestFilters } : {}),
+            ...(Object.keys(currentRequestFilters).length > 0
+              ? { filters: currentRequestFilters }
+              : {}),
           },
           controller.signal
         );
@@ -245,7 +259,7 @@ export function useErrorInsight({ serviceBase, managementKey }: UseErrorInsightO
       }
     })();
     return () => controller.abort();
-  }, [serviceBase, managementKey, windowMs, debouncedSearchQuery, requestFilters, generation]);
+  }, [serviceBase, managementKey, windowMs, debouncedSearchQuery, requestFiltersKey, generation]);
 
   // Filter-selector candidates (models/providers/api keys/auth files) via a
   // dedicated useMonitoringAnalytics instance — useUsageAnalytics.ts:294-311.
