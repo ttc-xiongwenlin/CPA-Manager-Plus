@@ -820,6 +820,7 @@
     "sort_descending": "降序排序",
     "sort_default": "默认排序",
     "sort_name": "凭证名称",
+    "sort_subscription": "订阅到期",
     "sort_reset_asc": "恢复时间最早",
     "sort_reset_desc": "恢复时间最晚",
     "sort_priority_desc": "优先使用靠前",

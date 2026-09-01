@@ -3,6 +3,7 @@
  */
 
 import type { AuthFileItem } from '@/types';
+import { parseTimestampMs } from '@/utils/timestamp';
 import { normalizeStringValue, normalizePlanType, parseIdTokenPayload } from './parsers';
 
 const resolveAccountIdCandidate = (value: unknown): string | null => {
@@ -64,6 +65,43 @@ export function resolveCodexChatgptAccountId(file: AuthFileItem): string | null 
     if (id) return id;
   }
 
+  return null;
+}
+
+export function parseSubscriptionActiveUntilMs(value: unknown): number | null {
+  const numeric =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string' && /^\d+(?:\.\d+)?$/.test(value.trim())
+        ? Number(value.trim())
+        : null;
+  const parsed =
+    numeric !== null && Number.isFinite(numeric)
+      ? numeric < 1e12
+        ? numeric * 1000
+        : numeric
+      : parseTimestampMs(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Number.isNaN(new Date(parsed).getTime()) ? null : parsed;
+}
+
+export function resolveCodexSubscriptionUntilMs(file: AuthFileItem): number | null {
+  const metadata =
+    file && typeof file.metadata === 'object' && file.metadata !== null
+      ? (file.metadata as Record<string, unknown>)
+      : null;
+  const attributes =
+    file && typeof file.attributes === 'object' && file.attributes !== null
+      ? (file.attributes as Record<string, unknown>)
+      : null;
+
+  for (const candidate of [file.id_token, metadata?.id_token, attributes?.id_token]) {
+    const payload = parseIdTokenPayload(candidate);
+    const untilMs = parseSubscriptionActiveUntilMs(
+      payload?.chatgpt_subscription_active_until ?? payload?.chatgptSubscriptionActiveUntil
+    );
+    if (untilMs !== null) return untilMs;
+  }
   return null;
 }
 

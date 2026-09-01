@@ -31,6 +31,21 @@ describe('accountsWorkspaceUrlState', () => {
     });
   });
 
+  it('round-trips the subscription sort key', () => {
+    const state = readAccountsWorkspaceUrlState(
+      '?sort=subscription&direction=asc',
+      DEFAULT_ACCOUNTS_WORKSPACE_UI_STATE
+    );
+    expect(state.accountSort).toEqual({ key: 'subscription', direction: 'asc' });
+
+    const search = writeAccountsWorkspaceUrlSearch(
+      '',
+      { ...DEFAULT_ACCOUNTS_WORKSPACE_UI_STATE, ...state },
+      DEFAULT_ACCOUNTS_WORKSPACE_UI_STATE
+    );
+    expect(search).toBe('?sort=subscription&direction=asc');
+  });
+
   it('writes only non-default workspace state and preserves unrelated query params', () => {
     const search = writeAccountsWorkspaceUrlSearch(
       '?keep=1&view=value',
@@ -178,9 +193,9 @@ describe('accountsWorkspaceUrlState codex bucket filter', () => {
     );
 
     expect(search).toBe('?bucket=team-a');
-    expect(readAccountsWorkspaceUrlState(search, DEFAULT_ACCOUNTS_WORKSPACE_UI_STATE).bucketFilter).toBe(
-      'team-a'
-    );
+    expect(
+      readAccountsWorkspaceUrlState(search, DEFAULT_ACCOUNTS_WORKSPACE_UI_STATE).bucketFilter
+    ).toBe('team-a');
     expect(
       writeAccountsWorkspaceUrlSearch(
         '',

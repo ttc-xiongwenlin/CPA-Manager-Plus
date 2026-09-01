@@ -11,11 +11,14 @@ import type {
   QuotaCooldownInfo,
 } from '@/services/api';
 import type { AuthFileCodexStatusSummary } from '@/features/authFiles/model/credentialStatus';
-import { normalizePlanType, parseIdTokenPayload } from '@/utils/quota/parsers';
+import { normalizePlanType } from '@/utils/quota/parsers';
 import { isValidQuotaResetAtMs } from '@/utils/quota/formatters';
-import { resolveCodexPlanType } from '@/utils/quota/resolvers';
+import {
+  parseSubscriptionActiveUntilMs,
+  resolveCodexPlanType,
+  resolveCodexSubscriptionUntilMs,
+} from '@/utils/quota/resolvers';
 import { isCodexMainQuotaWindow } from '@/utils/quota/codexQuota';
-import { parseTimestampMs } from '@/utils/timestamp';
 import { sumRecentRequests, type RecentRequestBucket } from '@/utils/recentRequests';
 import type { AccountRow } from './accountRows';
 import {
@@ -1137,49 +1140,17 @@ const buildOverviewCredential = (
   row: AccountRow,
   codexQuota: CodexQuotaState | null | undefined
 ): AccountDetailOverviewCredential => {
-  const parseValidSubscriptionUntilMs = (value: unknown): number | null => {
-    const numeric =
-      typeof value === 'number'
-        ? value
-        : typeof value === 'string' && /^\d+(?:\.\d+)?$/.test(value.trim())
-          ? Number(value.trim())
-          : null;
-    const parsed =
-      numeric !== null && Number.isFinite(numeric)
-        ? numeric < 1e12
-          ? numeric * 1000
-          : numeric
-        : parseTimestampMs(value);
-    if (!Number.isFinite(parsed) || parsed <= 0) return null;
-    return Number.isNaN(new Date(parsed).getTime()) ? null : parsed;
-  };
   const effectivePlanType = normalizePlanType(
     codexQuota?.planType ?? row.planType ?? resolveCodexPlanType(row.raw)
   );
   const hasPaidCodexSubscription =
     row.provider === 'codex' && effectivePlanType !== null && effectivePlanType !== 'free';
   const liveSubscriptionUntilMs = hasPaidCodexSubscription
-    ? parseValidSubscriptionUntilMs(codexQuota?.subscriptionActiveUntil)
+    ? parseSubscriptionActiveUntilMs(codexQuota?.subscriptionActiveUntil)
     : null;
-  const asRecord = (value: unknown): Record<string, unknown> | null =>
-    value && typeof value === 'object' && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : null;
-  const metadata = asRecord(row.raw.metadata);
-  const attributes = asRecord(row.raw.attributes);
-  const tokenSubscriptionUntilMs = hasPaidCodexSubscription
-    ? [row.raw.id_token, metadata?.id_token, attributes?.id_token].reduce<number | null>(
-        (resolved, candidate) => {
-          if (resolved !== null) return resolved;
-          const payload = parseIdTokenPayload(candidate);
-          return parseValidSubscriptionUntilMs(
-            payload?.chatgpt_subscription_active_until ?? payload?.chatgptSubscriptionActiveUntil
-          );
-        },
-        null
-      )
+  const subscriptionUntilMs = hasPaidCodexSubscription
+    ? (liveSubscriptionUntilMs ?? resolveCodexSubscriptionUntilMs(row.raw))
     : null;
-  const subscriptionUntilMs = liveSubscriptionUntilMs ?? tokenSubscriptionUntilMs;
   const subscriptionUntilLabelKey =
     liveSubscriptionUntilMs !== null
       ? 'accounts.detail_subscription_until'

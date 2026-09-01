@@ -45,6 +45,7 @@ const SORT_KEY_SET: ReadonlySet<AccountsWorkspaceUiState['accountSort']['key']> 
   'healthTier',
   'recent',
   'quota',
+  'subscription',
   'created',
 ]);
 const PAGE_SIZE_SET = new Set([10, 20, 50]);

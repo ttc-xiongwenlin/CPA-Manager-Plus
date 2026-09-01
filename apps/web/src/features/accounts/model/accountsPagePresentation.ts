@@ -32,6 +32,7 @@ export type SortableAccountColumn = Extract<
   | 'healthTier'
   | 'recent'
   | 'quota'
+  | 'subscription'
   | 'created'
 >;
 export type AccountSortFieldValue = 'default' | SortableAccountColumn;
@@ -76,6 +77,7 @@ export const ACCOUNT_SORT_DEFAULT_DIRECTIONS: Record<
   healthTier: 'desc',
   recent: 'desc',
   quota: 'desc',
+  subscription: 'asc',
   created: 'desc',
 };
 
@@ -94,6 +96,7 @@ export const ACCOUNT_SORT_FIELD_OPTIONS: Array<{
   { value: 'note', labelKey: 'auth_files.note_label' },
   { value: 'reset', labelKey: 'accounts.col_reset' },
   { value: 'quota', labelKey: 'accounts.col_quota' },
+  { value: 'subscription', labelKey: 'accounts.sort_subscription' },
   { value: 'priority', labelKey: 'accounts.col_priority' },
   { value: 'weight', labelKey: 'auth_files.weight_display' },
   { value: 'healthTier', labelKey: 'accounts.col_health_tier' },

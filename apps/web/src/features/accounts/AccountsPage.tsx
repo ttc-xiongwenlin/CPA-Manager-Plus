@@ -87,9 +87,7 @@ import {
   createCodexReauthTargetFromAuthFile,
   type CodexReauthTarget,
 } from '@/features/oauth/codexReauthModel';
-import {
-  runCredentialVisibilityRetry,
-} from '@/features/accounts/model/accountCredentialVisibilityRetry';
+import { runCredentialVisibilityRetry } from '@/features/accounts/model/accountCredentialVisibilityRetry';
 import {
   ACCOUNT_CODEX_STATUS_FILTERS,
   buildAccountInspectionBySelectionKey,
@@ -193,7 +191,9 @@ import {
   formatMoney,
   formatPercent,
   formatQuotaResetDisplay,
+  formatQuotaResetTimestamp,
   formatQuotaResetTooltipParams,
+  formatTimestampTitle,
   getAccountHistoryTitle,
   getAccountSortFieldOption,
   getProviderLabel,
@@ -1586,19 +1586,20 @@ export function AccountsPage() {
     async (options: { force?: boolean } = {}) => {
       const force = options.force === true;
       const synchronizationScopeKey = credentialEvidenceScopeKey;
-      const markers = listAccountCredentialMutationMarkers(connectionFingerprint).filter((marker) => {
-        if (consumedCredentialMutationMarkerIdsRef.current.has(marker.id)) return false;
-        if (force) return true;
-        const currentEvidence = JSON.stringify(
-          createAccountCredentialMutationBaseline(files, marker.provider)
-        );
-        const exhaustedEvidence = credentialMutationMarkerExhaustedRef.current.get(marker.id);
-        return exhaustedEvidence !== `${synchronizationScopeKey}\u001e${currentEvidence}`;
-      });
-      if (markers.length === 0) return false;
-      const pendingSynchronization = credentialMutationMarkerSynchronizationsRef.current.get(
-        synchronizationScopeKey
+      const markers = listAccountCredentialMutationMarkers(connectionFingerprint).filter(
+        (marker) => {
+          if (consumedCredentialMutationMarkerIdsRef.current.has(marker.id)) return false;
+          if (force) return true;
+          const currentEvidence = JSON.stringify(
+            createAccountCredentialMutationBaseline(files, marker.provider)
+          );
+          const exhaustedEvidence = credentialMutationMarkerExhaustedRef.current.get(marker.id);
+          return exhaustedEvidence !== `${synchronizationScopeKey}\u001e${currentEvidence}`;
+        }
       );
+      if (markers.length === 0) return false;
+      const pendingSynchronization =
+        credentialMutationMarkerSynchronizationsRef.current.get(synchronizationScopeKey);
       if (pendingSynchronization) return pendingSynchronization;
 
       const synchronization = (async () => {
@@ -2963,11 +2964,12 @@ export function AccountsPage() {
       let firstAttempt = true;
       const retry = await runCredentialVisibilityRetry<AuthFileItem[]>({
         load: async () => {
-          const loadedFiles = firstAttempt && options.reload === false
-            ? files
-            : firstAttempt
-              ? await reloadInspectionCredentialArtifacts({ requireSuccessfulReload: true })
-              : await loadFiles({ throwOnError: true });
+          const loadedFiles =
+            firstAttempt && options.reload === false
+              ? files
+              : firstAttempt
+                ? await reloadInspectionCredentialArtifacts({ requireSuccessfulReload: true })
+                : await loadFiles({ throwOnError: true });
           firstAttempt = false;
           if (!loadedFiles) throw new Error(t('notification.refresh_failed'));
           return loadedFiles;
@@ -3003,13 +3005,7 @@ export function AccountsPage() {
       });
       return result;
     },
-    [
-      credentialEvidenceScopeKey,
-      files,
-      loadFiles,
-      reloadInspectionCredentialArtifacts,
-      t,
-    ]
+    [credentialEvidenceScopeKey, files, loadFiles, reloadInspectionCredentialArtifacts, t]
   );
 
   const synchronizePendingAccountDirectReauths = useCallback(
@@ -7057,9 +7053,7 @@ export function AccountsPage() {
                       title={t('accounts.col_health_tier')}
                     >
                       {t('accounts.col_health_tier')}{' '}
-                      {item.identity.healthTier === null
-                        ? '—'
-                        : `×${item.identity.healthTier / 2}`}
+                      {item.identity.healthTier === null ? '—' : `×${item.identity.healthTier / 2}`}
                     </span>
                   </div>
                 </div>
@@ -7206,6 +7200,21 @@ export function AccountsPage() {
                       </button>
                     ) : null}
                   </div>
+                  {row.subscriptionUntilMs !== null ? (
+                    <div
+                      className={styles.accountCardQuotaMeta}
+                      data-account-subscription-until="true"
+                    >
+                      <span
+                        title={`${t('accounts.detail_subscription_until')}: ${
+                          formatTimestampTitle(row.subscriptionUntilMs, i18n.language) ?? ''
+                        }`}
+                      >
+                        {t('accounts.detail_subscription_until')}:{' '}
+                        {formatQuotaResetTimestamp(row.subscriptionUntilMs, i18n.language)}
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className={styles.accountCardRecommendation}>

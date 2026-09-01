@@ -16,7 +16,11 @@ import {
   type AuthFileCodexStatusSummary,
 } from '@/features/authFiles/model/credentialStatus';
 import { UNTAGGED_BUCKET_FILTER } from '@/features/authFiles/bucketOptions';
-import { resolveCodexPlanType } from '@/utils/quota/resolvers';
+import {
+  parseSubscriptionActiveUntilMs,
+  resolveCodexPlanType,
+  resolveCodexSubscriptionUntilMs,
+} from '@/utils/quota/resolvers';
 import {
   compareQuotaResetLabels,
   compareQuotaResets,
@@ -101,6 +105,7 @@ export type AccountRowSortKey =
   | 'healthTier'
   | 'recent'
   | 'quota'
+  | 'subscription'
   | 'created';
 export type AccountRowSortDirection = AccountQuotaSortDirection;
 
@@ -188,6 +193,7 @@ export interface AccountRow {
   healthTier: number | null;
   createdAtMs: number | null;
   updatedAtMs: number | null;
+  subscriptionUntilMs: number | null;
   quota: AccountQuotaSummary;
   usage: AccountUsageSummary;
   inspection: AccountInspectionSummary | null;
@@ -455,13 +461,19 @@ export const buildAccountRows = (
       boundarySupersedesRawStatus(statusBoundary) ||
       (authenticationAtMs > 0 && updatedAtMs !== null && authenticationAtMs >= updatedAtMs);
     const quota = resolveAccountQuota(effectiveFile, stores, overrides);
+    const planType = quota.planType ?? readPlanType(file);
+    const subscriptionUntilMs =
+      provider === 'codex' && planType !== null && planType !== 'free'
+        ? (parseSubscriptionActiveUntilMs(codexQuota?.subscriptionActiveUntil) ??
+          resolveCodexSubscriptionUntilMs(file))
+        : null;
     return {
       key: file.name,
       selectionKey,
       fileName: file.name,
       accountLabel: resolveAccountLabel(file),
       provider,
-      planType: quota.planType ?? readPlanType(file),
+      planType,
       disabled: effectiveFile.disabled === true,
       runtimeOnly:
         file.runtimeOnly === true || file.runtimeOnly === 'true' || file.runtime_only === true,
@@ -475,6 +487,7 @@ export const buildAccountRows = (
       healthTier: readNumber(file.health_tier),
       createdAtMs: readAuthFileCreatedAtMs(file),
       updatedAtMs,
+      subscriptionUntilMs,
       quota,
       usage: buildUsageSummary(file),
       inspection,
@@ -947,6 +960,13 @@ const compareAccountRowsBySort = (
   }
   if (sort.key === 'created') {
     return compareNullableNumbers(left.createdAtMs, right.createdAtMs, sort.direction);
+  }
+  if (sort.key === 'subscription') {
+    return compareNullableNumbers(
+      left.subscriptionUntilMs,
+      right.subscriptionUntilMs,
+      sort.direction
+    );
   }
   if (sort.key === 'reset') {
     return compareQuotaResets(left.quota, right.quota, sort.direction);

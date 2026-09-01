@@ -46,6 +46,7 @@ const makeRow = (overrides: AccountRowOverrides = {}): AccountRow => {
     healthTier: null,
     createdAtMs: null,
     updatedAtMs: null,
+    subscriptionUntilMs: null,
     quota: {
       status: 'ok',
       remainingPercent: 80,

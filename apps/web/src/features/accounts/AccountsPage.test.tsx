@@ -7109,6 +7109,26 @@ describe('AccountsPage replacement flows', () => {
     expect(treeText(renderer)).not.toContain('SUM');
   });
 
+  it('shows the subscription end date in the quota cell for paid codex accounts', async () => {
+    const subscriptionUntil = '2026-09-30T23:59:59Z';
+    mocks.files = [
+      {
+        ...makeCodexFile('paid.json', 'auth-paid', 'paid@example.com'),
+        id_token: { plan_type: 'plus', chatgpt_subscription_active_until: subscriptionUntil },
+      },
+      makeCodexFile('bare.json', 'auth-bare', 'bare@example.com'),
+    ];
+
+    const renderer = await renderAccountsPage();
+    const metaNodes = renderer.root.findAllByProps({ 'data-account-subscription-until': 'true' });
+
+    expect(metaNodes).toHaveLength(1);
+    expect(readText(metaNodes[0])).toContain('accounts.detail_subscription_until');
+    expect(readText(metaNodes[0])).toContain(
+      formatQuotaResetTimestamp(Date.parse(subscriptionUntil))
+    );
+  });
+
   it('selects account cards by row click while selection mode is active', async () => {
     const renderer = await renderAccountsPage();
 

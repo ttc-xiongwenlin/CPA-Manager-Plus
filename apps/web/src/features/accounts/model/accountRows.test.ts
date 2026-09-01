@@ -2613,6 +2613,84 @@ describe('accountRows', () => {
     ).toEqual(['excluded.json', 'unset.json', 'heavy.json']);
   });
 
+  it('resolves the subscription end time for paid codex accounts', () => {
+    const tokenUntil = '2026-09-30T23:59:59Z';
+    const liveUntilSeconds = 1_790_000_000;
+    const rows = buildAccountRows(
+      [
+        {
+          name: 'token.codex.json',
+          type: 'codex',
+          id_token: { plan_type: 'plus', chatgpt_subscription_active_until: tokenUntil },
+        },
+        {
+          name: 'live.codex.json',
+          type: 'codex',
+          id_token: { plan_type: 'plus', chatgpt_subscription_active_until: tokenUntil },
+        },
+        {
+          name: 'free.codex.json',
+          type: 'codex',
+          id_token: { plan_type: 'free', chatgpt_subscription_active_until: tokenUntil },
+        },
+        {
+          name: 'claude.json',
+          type: 'claude',
+          id_token: { chatgpt_subscription_active_until: tokenUntil },
+        },
+      ],
+      {
+        ...emptyStores(),
+        codexQuota: {
+          'live.codex.json': {
+            status: 'success',
+            windows: [],
+            planType: 'plus',
+            subscriptionActiveUntil: liveUntilSeconds,
+          },
+        },
+      }
+    );
+    const byName = new Map(rows.map((row) => [row.fileName, row]));
+
+    expect(byName.get('token.codex.json')?.subscriptionUntilMs).toBe(Date.parse(tokenUntil));
+    expect(byName.get('live.codex.json')?.subscriptionUntilMs).toBe(liveUntilSeconds * 1000);
+    expect(byName.get('free.codex.json')?.subscriptionUntilMs).toBeNull();
+    expect(byName.get('claude.json')?.subscriptionUntilMs).toBeNull();
+  });
+
+  it('sorts rows by subscription end time keeping accounts without one last', () => {
+    const rows = buildAccountRows(
+      [
+        {
+          name: 'later.codex.json',
+          type: 'codex',
+          id_token: {
+            plan_type: 'plus',
+            chatgpt_subscription_active_until: '2026-12-31T00:00:00Z',
+          },
+        },
+        {
+          name: 'soon.codex.json',
+          type: 'codex',
+          id_token: {
+            plan_type: 'plus',
+            chatgpt_subscription_active_until: '2026-09-15T00:00:00Z',
+          },
+        },
+        { name: 'none.codex.json', type: 'codex' },
+      ],
+      emptyStores()
+    );
+
+    expect(
+      sortAccountRows(rows, { key: 'subscription', direction: 'asc' }).map((row) => row.fileName)
+    ).toEqual(['soon.codex.json', 'later.codex.json', 'none.codex.json']);
+    expect(
+      sortAccountRows(rows, { key: 'subscription', direction: 'desc' }).map((row) => row.fileName)
+    ).toEqual(['later.codex.json', 'soon.codex.json', 'none.codex.json']);
+  });
+
   it('sorts the recent column by latest request evidence before falling back to counts', () => {
     const rows = buildAccountRows(
       [
