@@ -2673,6 +2673,12 @@ describe('accountRows', () => {
           type: 'codex',
           id_token: { plan_type: 'pro', chatgpt_subscription_active_until: expiredClaim },
         },
+        {
+          name: 'disabled.codex.json',
+          type: 'codex',
+          disabled: true,
+          id_token: { plan_type: 'pro', chatgpt_subscription_active_until: expiredClaim },
+        },
       ],
       {
         ...emptyStores(),
@@ -2692,6 +2698,9 @@ describe('accountRows', () => {
     expect(byName.get('live-past.codex.json')?.subscriptionUntilMs).toBe(
       Date.parse('2020-05-01T00:00:00Z')
     );
+    // A disabled account is not proof the claim is stale — the lapsed date is
+    // exactly what the operator needs to see before renewing.
+    expect(byName.get('disabled.codex.json')?.subscriptionUntilMs).toBe(Date.parse(expiredClaim));
   });
 
   it('sorts rows by subscription end time keeping accounts without one last', () => {

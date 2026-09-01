@@ -466,12 +466,15 @@ export const buildAccountRows = (
       codexQuota?.subscriptionActiveUntil
     );
     // The id_token claim is frozen at login time (OpenAI's refresh grant does not
-    // update it), so a past claim on a working paid account is stale, not authoritative.
+    // update it), so a past claim on a working paid account is stale, not
+    // authoritative. On a disabled account the lapsed date is the information the
+    // operator needs, so it stays visible there.
+    const disabled = effectiveFile.disabled === true;
     const tokenSubscriptionUntilMs = resolveCodexSubscriptionUntilMs(file);
     const subscriptionUntilMs =
       provider === 'codex' && planType !== null && planType !== 'free'
         ? (liveSubscriptionUntilMs ??
-          (tokenSubscriptionUntilMs !== null && tokenSubscriptionUntilMs > Date.now()
+          (tokenSubscriptionUntilMs !== null && (disabled || tokenSubscriptionUntilMs > Date.now())
             ? tokenSubscriptionUntilMs
             : null))
         : null;
@@ -482,7 +485,7 @@ export const buildAccountRows = (
       accountLabel: resolveAccountLabel(file),
       provider,
       planType,
-      disabled: effectiveFile.disabled === true,
+      disabled,
       runtimeOnly:
         file.runtimeOnly === true || file.runtimeOnly === 'true' || file.runtime_only === true,
       statusMessage: rawStatusSuperseded ? '' : rawStatusMessage,
