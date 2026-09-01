@@ -2614,8 +2614,8 @@ describe('accountRows', () => {
   });
 
   it('resolves the subscription end time for paid codex accounts', () => {
-    const tokenUntil = '2026-09-30T23:59:59Z';
-    const liveUntilSeconds = 1_790_000_000;
+    const tokenUntil = '2199-09-30T23:59:59Z';
+    const liveUntilSeconds = 7_258_118_400;
     const rows = buildAccountRows(
       [
         {
@@ -2659,6 +2659,41 @@ describe('accountRows', () => {
     expect(byName.get('claude.json')?.subscriptionUntilMs).toBeNull();
   });
 
+  it('drops an already-expired token subscription claim but keeps a live value', () => {
+    const expiredClaim = '2020-01-01T00:00:00Z';
+    const rows = buildAccountRows(
+      [
+        {
+          name: 'stale-token.codex.json',
+          type: 'codex',
+          id_token: { plan_type: 'pro', chatgpt_subscription_active_until: expiredClaim },
+        },
+        {
+          name: 'live-past.codex.json',
+          type: 'codex',
+          id_token: { plan_type: 'pro', chatgpt_subscription_active_until: expiredClaim },
+        },
+      ],
+      {
+        ...emptyStores(),
+        codexQuota: {
+          'live-past.codex.json': {
+            status: 'success',
+            windows: [],
+            planType: 'pro',
+            subscriptionActiveUntil: '2020-05-01T00:00:00Z',
+          },
+        },
+      }
+    );
+    const byName = new Map(rows.map((row) => [row.fileName, row]));
+
+    expect(byName.get('stale-token.codex.json')?.subscriptionUntilMs).toBeNull();
+    expect(byName.get('live-past.codex.json')?.subscriptionUntilMs).toBe(
+      Date.parse('2020-05-01T00:00:00Z')
+    );
+  });
+
   it('sorts rows by subscription end time keeping accounts without one last', () => {
     const rows = buildAccountRows(
       [
@@ -2667,7 +2702,7 @@ describe('accountRows', () => {
           type: 'codex',
           id_token: {
             plan_type: 'plus',
-            chatgpt_subscription_active_until: '2026-12-31T00:00:00Z',
+            chatgpt_subscription_active_until: '2199-12-31T00:00:00Z',
           },
         },
         {
@@ -2675,7 +2710,7 @@ describe('accountRows', () => {
           type: 'codex',
           id_token: {
             plan_type: 'plus',
-            chatgpt_subscription_active_until: '2026-09-15T00:00:00Z',
+            chatgpt_subscription_active_until: '2199-09-15T00:00:00Z',
           },
         },
         { name: 'none.codex.json', type: 'codex' },

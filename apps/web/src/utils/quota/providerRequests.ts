@@ -40,6 +40,7 @@ import {
   CLAUDE_REQUEST_HEADERS,
   CLAUDE_USAGE_URL,
   CLAUDE_USAGE_WINDOW_KEYS,
+  CODEX_ACCOUNT_CHECK_URL,
   CODEX_RATE_LIMIT_RESET_CREDITS_URL,
   CODEX_USAGE_URL,
   KIMI_REQUEST_HEADERS,
@@ -486,6 +487,58 @@ const fetchCodexResetCredits = async (
   }
 };
 
+const resolveCodexAccountsCheckSubscriptionEnd = (
+  payload: unknown,
+  accountId: string | null | undefined
+): string | number | null => {
+  if (!payload || typeof payload !== 'object') return null;
+  const accounts = (payload as Record<string, unknown>).accounts;
+  if (!accounts || typeof accounts !== 'object') return null;
+  const record = accounts as Record<string, unknown>;
+  const trimmedAccountId = String(accountId ?? '').trim();
+  const candidates = [
+    trimmedAccountId ? record[trimmedAccountId] : undefined,
+    record.default,
+    ...Object.values(record),
+  ];
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'object') continue;
+    const entitlement = (candidate as Record<string, unknown>).entitlement;
+    if (!entitlement || typeof entitlement !== 'object') continue;
+    const details = entitlement as Record<string, unknown>;
+    if (details.has_active_subscription === false) continue;
+    const value = details.expires_at ?? details.expiresAt;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    const normalized = normalizeStringValue(value);
+    if (normalized) return normalized;
+  }
+  return null;
+};
+
+const CODEX_ACCOUNT_CHECK_REQUEST_TIMEOUT_MS = 8000;
+
+const fetchCodexSubscriptionActiveUntil = async (
+  authIndex: string,
+  accountId: string | null | undefined,
+  requestConfig?: AxiosRequestConfig
+): Promise<string | number | null> => {
+  try {
+    const result = await apiCallApi.request(
+      {
+        authIndex,
+        method: 'GET',
+        url: CODEX_ACCOUNT_CHECK_URL,
+        header: buildCodexUsageRequestHeaders(accountId),
+      },
+      { ...requestConfig, timeout: CODEX_ACCOUNT_CHECK_REQUEST_TIMEOUT_MS }
+    );
+    if (result.statusCode < 200 || result.statusCode >= 300) return null;
+    return resolveCodexAccountsCheckSubscriptionEnd(result.body, accountId);
+  } catch {
+    return null;
+  }
+};
+
 export const fetchCodexQuota = async (
   file: AuthFileItem,
   t: TFunction,
@@ -525,12 +578,15 @@ export const fetchCodexQuota = async (
   const windows = buildCodexQuotaWindows(payload, t, planType, observedAtMs);
   const usageResetCreditsAvailableCount = resolveCodexRateLimitResetCreditsAvailableCount(payload);
   const resetCredits = await fetchCodexResetCredits(authIndex, accountId, t, requestConfig);
+  const subscriptionActiveUntil =
+    resolveCodexSubscriptionActiveUntil(payload) ??
+    (await fetchCodexSubscriptionActiveUntil(authIndex, accountId, requestConfig));
   return {
     planType,
     windows,
     observedAtMs,
     quotaInventoryObserved: hasCodexQuotaInventory(payload),
-    subscriptionActiveUntil: resolveCodexSubscriptionActiveUntil(payload),
+    subscriptionActiveUntil,
     ...resolveCodexCreditsInfo(payload),
     ...resolveCodexSpendControlInfo(payload),
     rateLimitResetCreditsAvailableCount: resolveCodexResetCreditsAvailableCount(

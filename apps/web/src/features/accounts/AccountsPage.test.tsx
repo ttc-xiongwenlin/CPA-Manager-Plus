@@ -7110,7 +7110,7 @@ describe('AccountsPage replacement flows', () => {
   });
 
   it('shows the subscription end date in the quota cell for paid codex accounts', async () => {
-    const subscriptionUntil = '2026-09-30T23:59:59Z';
+    const subscriptionUntil = '2199-09-30T23:59:59Z';
     mocks.files = [
       {
         ...makeCodexFile('paid.json', 'auth-paid', 'paid@example.com'),

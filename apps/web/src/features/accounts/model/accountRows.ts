@@ -462,10 +462,18 @@ export const buildAccountRows = (
       (authenticationAtMs > 0 && updatedAtMs !== null && authenticationAtMs >= updatedAtMs);
     const quota = resolveAccountQuota(effectiveFile, stores, overrides);
     const planType = quota.planType ?? readPlanType(file);
+    const liveSubscriptionUntilMs = parseSubscriptionActiveUntilMs(
+      codexQuota?.subscriptionActiveUntil
+    );
+    // The id_token claim is frozen at login time (OpenAI's refresh grant does not
+    // update it), so a past claim on a working paid account is stale, not authoritative.
+    const tokenSubscriptionUntilMs = resolveCodexSubscriptionUntilMs(file);
     const subscriptionUntilMs =
       provider === 'codex' && planType !== null && planType !== 'free'
-        ? (parseSubscriptionActiveUntilMs(codexQuota?.subscriptionActiveUntil) ??
-          resolveCodexSubscriptionUntilMs(file))
+        ? (liveSubscriptionUntilMs ??
+          (tokenSubscriptionUntilMs !== null && tokenSubscriptionUntilMs > Date.now()
+            ? tokenSubscriptionUntilMs
+            : null))
         : null;
     return {
       key: file.name,

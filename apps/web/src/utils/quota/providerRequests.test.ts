@@ -28,6 +28,7 @@ import {
   ANTIGRAVITY_USER_AGENT,
   CLAUDE_PROFILE_URL,
   CLAUDE_USAGE_URL,
+  CODEX_ACCOUNT_CHECK_URL,
   CODEX_RATE_LIMIT_RESET_CREDITS_URL,
   CODEX_USAGE_URL,
   XAI_BILLING_MONTHLY_URL,
@@ -216,6 +217,13 @@ describe('fetchCodexQuota', () => {
         header: {},
         bodyText: '',
         body: { available_count: 0, credits: [] },
+      })
+      .mockResolvedValueOnce({
+        statusCode: 200,
+        hasStatusCode: true,
+        header: {},
+        bodyText: '',
+        body: { accounts: {} },
       });
 
     await fetchCodexQuota({ name: 'codex.json', type: 'codex', authIndex: 'auth-1' }, t, {
@@ -223,7 +231,7 @@ describe('fetchCodexQuota', () => {
       managementKey: 'captured-key',
     });
 
-    expect(mocks.request).toHaveBeenCalledTimes(2);
+    expect(mocks.request).toHaveBeenCalledTimes(3);
     for (const call of mocks.request.mock.calls) {
       expect(call[1]).toMatchObject({
         baseURL: 'https://captured-cpa.example.test/v0/management',
@@ -301,6 +309,142 @@ describe('fetchCodexQuota', () => {
     expect(result.rateLimitResetCreditsAvailableCount).toBe(1);
     expect(result.rateLimitResetCredits).toEqual([]);
     expect(result.rateLimitResetCreditsError).toBe('502 bad gateway');
+  });
+
+  it('fetches the live subscription end from accounts/check when usage omits it', async () => {
+    mocks.request
+      .mockResolvedValueOnce({
+        statusCode: 200,
+        hasStatusCode: true,
+        header: {},
+        bodyText: '',
+        body: { plan_type: 'pro', rate_limit: {} },
+      })
+      .mockResolvedValueOnce({
+        statusCode: 200,
+        hasStatusCode: true,
+        header: {},
+        bodyText: '',
+        body: { available_count: 0, credits: [] },
+      })
+      .mockResolvedValueOnce({
+        statusCode: 200,
+        hasStatusCode: true,
+        header: {},
+        bodyText: '',
+        body: {
+          accounts: {
+            'acct-1': {
+              entitlement: {
+                has_active_subscription: true,
+                subscription_plan: 'chatgptpro',
+                expires_at: '2199-09-11T16:13:51+00:00',
+              },
+            },
+          },
+        },
+      });
+
+    const result = await fetchCodexQuota(
+      {
+        name: 'codex.json',
+        type: 'codex',
+        authIndex: 'auth-1',
+        id_token: { account_id: 'acct-1' },
+      },
+      t
+    );
+
+    expect(mocks.request).toHaveBeenCalledTimes(3);
+    expect(mocks.request.mock.calls[2][0]).toMatchObject({
+      authIndex: 'auth-1',
+      method: 'GET',
+      url: CODEX_ACCOUNT_CHECK_URL,
+      header: expect.objectContaining({
+        Authorization: 'Bearer $TOKEN$',
+        'Chatgpt-Account-Id': 'acct-1',
+      }),
+    });
+    expect(result.subscriptionActiveUntil).toBe('2199-09-11T16:13:51+00:00');
+  });
+
+  it('falls back to the default accounts/check entry and ignores inactive entitlements', async () => {
+    mocks.request
+      .mockResolvedValueOnce({
+        statusCode: 200,
+        hasStatusCode: true,
+        header: {},
+        bodyText: '',
+        body: { plan_type: 'pro', rate_limit: {} },
+      })
+      .mockResolvedValueOnce({
+        statusCode: 200,
+        hasStatusCode: true,
+        header: {},
+        bodyText: '',
+        body: { available_count: 0, credits: [] },
+      })
+      .mockResolvedValueOnce({
+        statusCode: 200,
+        hasStatusCode: true,
+        header: {},
+        bodyText: '',
+        body: {
+          accounts: {
+            stale: {
+              entitlement: {
+                has_active_subscription: false,
+                expires_at: '2020-01-01T00:00:00+00:00',
+              },
+            },
+            default: {
+              entitlement: {
+                has_active_subscription: true,
+                expires_at: '2199-10-01T00:00:00+00:00',
+              },
+            },
+          },
+        },
+      });
+
+    const result = await fetchCodexQuota(
+      { name: 'codex.json', type: 'codex', authIndex: 'auth-1' },
+      t
+    );
+
+    expect(result.subscriptionActiveUntil).toBe('2199-10-01T00:00:00+00:00');
+  });
+
+  it('keeps the subscription end null when accounts/check fails', async () => {
+    mocks.request
+      .mockResolvedValueOnce({
+        statusCode: 200,
+        hasStatusCode: true,
+        header: {},
+        bodyText: '',
+        body: { plan_type: 'pro', rate_limit: {} },
+      })
+      .mockResolvedValueOnce({
+        statusCode: 200,
+        hasStatusCode: true,
+        header: {},
+        bodyText: '',
+        body: { available_count: 0, credits: [] },
+      })
+      .mockResolvedValueOnce({
+        statusCode: 403,
+        hasStatusCode: true,
+        header: {},
+        bodyText: 'forbidden',
+        body: null,
+      });
+
+    const result = await fetchCodexQuota(
+      { name: 'codex.json', type: 'codex', authIndex: 'auth-1' },
+      t
+    );
+
+    expect(result.subscriptionActiveUntil).toBeNull();
   });
 
   it('uses localized reset credit errors for invalid detail payloads', async () => {

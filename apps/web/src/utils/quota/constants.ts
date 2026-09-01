@@ -179,6 +179,10 @@ export const CLAUDE_USAGE_WINDOW_KEYS = [
 
 // Codex API configuration
 export const CODEX_USAGE_URL = 'https://chatgpt.com/backend-api/wham/usage';
+// The wham/usage payload stopped carrying subscription_active_until; this endpoint
+// still returns the live entitlement (expires_at) for the credential's account.
+export const CODEX_ACCOUNT_CHECK_URL =
+  'https://chatgpt.com/backend-api/accounts/check/v4-2023-04-27';
 
 export const CODEX_RATE_LIMIT_RESET_CREDITS_URL =
   'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits';
