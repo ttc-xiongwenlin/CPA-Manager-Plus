@@ -132,8 +132,99 @@ func TestErrorClassBreakdownByProviderAndModel(t *testing.T) {
 		}
 	}
 
-	if _, err := repo.ErrorClassBreakdownWithFilter(context.Background(), filter, "account"); err == nil {
+	if _, err := repo.ErrorClassBreakdownWithFilter(context.Background(), filter, "unknown"); err == nil {
 		t.Fatalf("expected error for unknown dimension, got nil")
+	}
+}
+
+func TestErrorClassBreakdownByAPIKeyAndAccount(t *testing.T) {
+	repo := newErrorClassTestRepo(t)
+	base := time.Date(2026, time.August, 1, 10, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		hash       string
+		apiKeyHash string
+		account    string
+		authFile   string
+		statusCode int
+		wantClass  string
+	}{
+		{"ak-1", "hash-a", "a@b", "a.json", 429, "rate_limited"},
+		{"ak-2", "hash-a", "a@b", "a.json", 401, "auth"},
+		{"ak-3", "hash-b", "c@d", "c.json", 429, "rate_limited"},
+		// 无 account_snapshot 时按凭据文件名分组，而不是并入 '' 键。
+		{"ak-4", "hash-b", "", "orphan.json", 429, "rate_limited"},
+		// 两者都没有时落到 '' 键。
+		{"ak-5", "", "", "", 429, "rate_limited"},
+	}
+	for i, c := range cases {
+		ts := base.Add(time.Duration(i) * time.Minute)
+		event := usage.Event{
+			EventHash:        c.hash,
+			TimestampMS:      ts.UnixMilli(),
+			Timestamp:        ts.Format(time.RFC3339Nano),
+			Model:            "gpt-test",
+			APIKeyHash:       c.apiKeyHash,
+			AccountSnapshot:  c.account,
+			AuthFileSnapshot: c.authFile,
+			Failed:           true,
+			FailStatusCode:   c.statusCode,
+			CreatedAtMS:      ts.UnixMilli(),
+		}
+		if _, err := repo.InsertBatch(context.Background(), []usage.Event{event}); err != nil {
+			t.Fatalf("insert event %s: %v", c.hash, err)
+		}
+	}
+
+	filter := AnalyticsFilter{
+		FromMS: base.UnixMilli(),
+		ToMS:   base.Add(time.Hour).UnixMilli(),
+	}
+
+	collect := func(dimension string) map[[2]string]int64 {
+		t.Helper()
+		rows, err := repo.ErrorClassBreakdownWithFilter(context.Background(), filter, dimension)
+		if err != nil {
+			t.Fatalf("breakdown by %s: %v", dimension, err)
+		}
+		got := map[[2]string]int64{}
+		for _, row := range rows {
+			got[[2]string{row.Key, row.Class}] += row.Count
+		}
+		return got
+	}
+
+	gotAPIKey := collect("api_key")
+	wantAPIKey := map[[2]string]int64{
+		{"hash-a", "rate_limited"}: 1,
+		{"hash-a", "auth"}:         1,
+		{"hash-b", "rate_limited"}: 2,
+		{"", "rate_limited"}:       1,
+	}
+	if len(gotAPIKey) != len(wantAPIKey) {
+		t.Fatalf("api_key breakdown has %d cells, want %d (map: %#v)", len(gotAPIKey), len(wantAPIKey), gotAPIKey)
+	}
+	for key, want := range wantAPIKey {
+		if gotAPIKey[key] != want {
+			t.Errorf("api_key breakdown cell %v = %d, want %d (map: %#v)", key, gotAPIKey[key], want, gotAPIKey)
+		}
+	}
+
+	gotAccount := collect("account")
+	wantAccount := map[[2]string]int64{
+		{"a@b", "rate_limited"}:         1,
+		{"a@b", "auth"}:                 1,
+		{"c@d", "rate_limited"}:         1,
+		{"orphan.json", "rate_limited"}: 1,
+		{"", "rate_limited"}:            1,
+	}
+	if len(gotAccount) != len(wantAccount) {
+		t.Fatalf("account breakdown has %d cells, want %d (map: %#v)", len(gotAccount), len(wantAccount), gotAccount)
+	}
+	for key, want := range wantAccount {
+		if gotAccount[key] != want {
+			t.Errorf("account breakdown cell %v = %d, want %d (map: %#v)", key, gotAccount[key], want, gotAccount)
+		}
 	}
 }
 

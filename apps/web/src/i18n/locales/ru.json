@@ -3227,6 +3227,8 @@
     "kpi_canceled_share": "Доля отмен клиентом",
     "breakdown_provider": "По провайдерам",
     "breakdown_model": "По моделям",
+    "breakdown_api_key": "По ключам API",
+    "breakdown_account": "По аккаунтам",
     "class_selected_hint": "Показан только {{class}} — нажмите ещё раз, чтобы сбросить"
   },
   "logs": {

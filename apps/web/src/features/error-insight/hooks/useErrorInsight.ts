@@ -4,6 +4,8 @@ import type { SelectOption } from '@/components/ui/Select';
 import { UNTAGGED_BUCKET_FILTER } from '@/features/authFiles/bucketOptions';
 import { useAuthFilesBucketOptions } from '@/features/authFiles/hooks/useAuthFilesBucketOptions';
 import { useMonitoringAnalytics } from '@/features/monitoring/hooks/useMonitoringAnalytics';
+import { useUsageData } from '@/features/monitoring/hooks/useUsageData';
+import { buildApiKeyDisplayMap } from '@/features/monitoring/model/apiKeys';
 import { buildMonitoringAuthMetaMap } from '@/features/monitoring/model/authMeta';
 import { buildMonitoringFilterSelectorsInclude } from '@/features/monitoring/model/monitoringAnalyticsModel';
 import type { MonitoringAuthMeta } from '@/features/monitoring/model/types';
@@ -12,6 +14,7 @@ import { errorInsightApi, type ErrorInsightFilters } from '@/services/api/errorI
 import { useConfigStore } from '@/stores';
 import type { AuthFileItem } from '@/types/authFile';
 import {
+  buildErrorInsightApiKeyOptions,
   buildErrorInsightView,
   ERROR_INSIGHT_WINDOW_PRESETS,
   type ErrorInsightView,
@@ -35,7 +38,7 @@ interface UseErrorInsightOptions {
 export interface ErrorInsightSelectorOptions {
   models: string[];
   providers: string[];
-  apiKeys: string[];
+  apiKeys: SelectOption[];
   authFiles: string[];
   buckets: SelectOption[];
 }
@@ -110,6 +113,12 @@ function buildErrorInsightRequestFilters(
 
 export function useErrorInsight({ serviceBase, managementKey }: UseErrorInsightOptions) {
   const config = useConfigStore((state) => state.config);
+  // Alias > masked key display for the api key filter — useUsageAnalytics.ts:95,124.
+  const { apiKeyAliases, loadApiKeyAliases } = useUsageData({ loadUsageEvents: false });
+  const apiKeyDisplayMap = useMemo(
+    () => buildApiKeyDisplayMap(config?.apiKeys || [], apiKeyAliases || []),
+    [apiKeyAliases, config?.apiKeys]
+  );
   const [searchParams, setSearchParams] = useSearchParams();
   const [filters, setFiltersState] = useState<ErrorInsightFiltersState>(() =>
     buildErrorInsightUiStateFromSearchParams(searchParams, readErrorInsightUiState())
@@ -178,10 +187,11 @@ export function useErrorInsight({ serviceBase, managementKey }: UseErrorInsightO
   const refresh = useCallback(() => {
     setGeneration((value) => value + 1);
     setSelectorsToMs(Date.now());
+    void loadApiKeyAliases();
     loadMonitoringMeta()
       .then((authFiles) => setAuthFiles(authFiles))
       .catch(() => setAuthFiles([]));
-  }, [loadMonitoringMeta]);
+  }, [loadApiKeyAliases, loadMonitoringMeta]);
 
   const setFilters = useCallback((patch: Partial<ErrorInsightFiltersState>) => {
     // Persistence happens in the sync effect below (runs on every `filters`
@@ -288,15 +298,18 @@ export function useErrorInsight({ serviceBase, managementKey }: UseErrorInsightO
     () => ({
       models: filterSelectorsData?.filter_options?.models ?? [],
       providers: filterSelectorsData?.filter_options?.providers ?? [],
-      apiKeys: filterSelectorsData?.filter_options?.api_key_hashes ?? [],
+      apiKeys: buildErrorInsightApiKeyOptions(
+        filterSelectorsData?.filter_options?.api_key_hashes ?? [],
+        apiKeyDisplayMap
+      ),
       authFiles: filterSelectorsData?.filter_options?.auth_files ?? [],
       buckets: bucketOptionNames.map((name) => ({ value: name, label: name })),
     }),
-    [filterSelectorsData, bucketOptionNames]
+    [filterSelectorsData, apiKeyDisplayMap, bucketOptionNames]
   );
 
   return useMemo(
-    () => ({ status, view, filters, setFilters, clearFilters, refresh, options }),
-    [status, view, filters, setFilters, clearFilters, refresh, options]
+    () => ({ status, view, filters, setFilters, clearFilters, refresh, options, apiKeyDisplayMap }),
+    [status, view, filters, setFilters, clearFilters, refresh, options, apiKeyDisplayMap]
   );
 }

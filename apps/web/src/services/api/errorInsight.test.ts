@@ -75,6 +75,25 @@ describe('normalizeErrorInsightResponse', () => {
     expect(view.by_model).toEqual([]);
   });
 
+  it('passes through by_api_key and by_account breakdowns, defaulting when missing', () => {
+    const view = normalizeErrorInsightResponse({
+      classes: [],
+      timeline: [],
+      recent: [],
+      by_api_key: [
+        { key: 'hash-a', class: 'auth', count: 2 },
+        { key: 'hash-b', count: 1 },
+      ],
+      by_account: [{ key: 'a@b', class: 'rate_limited', count: 4 }],
+    });
+    expect(view.by_api_key).toEqual([{ key: 'hash-a', class: 'auth', count: 2 }]);
+    expect(view.by_account).toEqual([{ key: 'a@b', class: 'rate_limited', count: 4 }]);
+
+    const missing = normalizeErrorInsightResponse({ classes: [], timeline: [], recent: [] });
+    expect(missing.by_api_key).toEqual([]);
+    expect(missing.by_account).toEqual([]);
+  });
+
 
   it('returns empty view for a non-object payload', () => {
     expect(normalizeErrorInsightResponse('nope')).toEqual({
@@ -83,6 +102,8 @@ describe('normalizeErrorInsightResponse', () => {
       recent: [],
       by_provider: [],
       by_model: [],
+      by_api_key: [],
+      by_account: [],
     });
   });
 });

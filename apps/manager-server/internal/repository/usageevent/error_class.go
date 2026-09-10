@@ -167,6 +167,11 @@ type ErrorClassBreakdownRow struct {
 var errorClassBreakdownKeyExpressions = map[string]string{
 	"provider": `coalesce(nullif(auth_provider_snapshot, ''), coalesce(provider, ''))`,
 	"model":    `coalesce(nullif(requested_model, ''), model)`,
+	"api_key":  `coalesce(api_key_hash, '')`,
+	// Account email first (what the recent-failures "account" column shows),
+	// falling back to the credential file name so events that carry no
+	// snapshot email still group by their credential rather than into ''.
+	"account": `coalesce(nullif(account_snapshot, ''), nullif(auth_file_snapshot, ''), '')`,
 }
 
 func (r *repository) ErrorClassBreakdownWithFilter(ctx context.Context, filter AnalyticsFilter, dimension string) ([]ErrorClassBreakdownRow, error) {

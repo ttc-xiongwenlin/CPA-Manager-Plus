@@ -19,9 +19,9 @@ const maxWindowMS = 14 * 24 * 60 * 60 * 1000
 
 const recentLimit = 50
 
-// breakdownLimit caps how many distinct keys (providers or models) the
-// by_provider / by_model breakdowns return; the controller truncates to the
-// top keys by summed count and discards the rest.
+// breakdownLimit caps how many distinct keys (providers, models, api keys or
+// accounts) each by_* breakdown returns; the controller truncates to the top
+// keys by summed count and discards the rest.
 const breakdownLimit = 10
 
 type Handler struct {
@@ -102,6 +102,8 @@ type insightResponse struct {
 	Recent     []recentItem    `json:"recent"`
 	ByProvider []breakdownItem `json:"by_provider"`
 	ByModel    []breakdownItem `json:"by_model"`
+	ByAPIKey   []breakdownItem `json:"by_api_key"`
+	ByAccount  []breakdownItem `json:"by_account"`
 }
 
 func validateWindow(fromMS, toMS int64) error {
@@ -123,6 +125,8 @@ func buildResponse(
 	recent []store.ErrorClassRecentFailure,
 	providerBreakdown []store.ErrorClassBreakdownRow,
 	modelBreakdown []store.ErrorClassBreakdownRow,
+	apiKeyBreakdown []store.ErrorClassBreakdownRow,
+	accountBreakdown []store.ErrorClassBreakdownRow,
 ) insightResponse {
 	out := insightResponse{
 		Classes:  make([]classItem, 0, len(stats)),
@@ -154,6 +158,8 @@ func buildResponse(
 	}
 	out.ByProvider = topBreakdownKeys(providerBreakdown, breakdownLimit)
 	out.ByModel = topBreakdownKeys(modelBreakdown, breakdownLimit)
+	out.ByAPIKey = topBreakdownKeys(apiKeyBreakdown, breakdownLimit)
+	out.ByAccount = topBreakdownKeys(accountBreakdown, breakdownLimit)
 	return out
 }
 
@@ -252,6 +258,19 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 		response.Error(w, http.StatusInternalServerError, err)
 		return
 	}
+	apiKeyBreakdown, err := h.App.Store.ErrorClassBreakdownWithFilter(ctx, filter, "api_key")
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err)
+		return
+	}
+	accountBreakdown, err := h.App.Store.ErrorClassBreakdownWithFilter(ctx, filter, "account")
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err)
+		return
+	}
 
-	response.JSON(w, http.StatusOK, buildResponse(stats, timeline, recent, providerBreakdown, modelBreakdown))
+	response.JSON(w, http.StatusOK, buildResponse(
+		stats, timeline, recent,
+		providerBreakdown, modelBreakdown, apiKeyBreakdown, accountBreakdown,
+	))
 }

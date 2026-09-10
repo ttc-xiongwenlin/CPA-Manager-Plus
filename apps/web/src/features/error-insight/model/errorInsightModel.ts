@@ -1,3 +1,6 @@
+import type { SelectOption } from '@/components/ui/Select';
+import type { ApiKeyDisplayInfo } from '@/features/monitoring/model/apiKeys';
+import { formatApiKeyHashLabel } from '@/features/monitoring/model/base';
 import {
   ERROR_CLASSES,
   ERROR_INSIGHT_MAX_WINDOW_MS,
@@ -69,6 +72,8 @@ export interface ErrorInsightView {
   timelineSeries: { class: ErrorClass; data: number[] }[];
   byProvider: ErrorInsightBreakdownView;
   byModel: ErrorInsightBreakdownView;
+  byApiKey: ErrorInsightBreakdownView;
+  byAccount: ErrorInsightBreakdownView;
   kpis: ErrorInsightKpis;
   recent: ErrorInsightResponse['recent'];
 }
@@ -162,12 +167,14 @@ export function buildErrorInsightView(
     donutData: shares,
     timelineBuckets: buckets,
     timelineSeries,
-    // by_provider/by_model breakdowns both go through buildBreakdownView
-    // below; the page renders them straight off view.byProvider/view.byModel
+    // Every by_* breakdown goes through buildBreakdownView below; the page
+    // renders them straight off view.byProvider/byModel/byApiKey/byAccount
     // (ErrorInsightPage.tsx's buildBreakdownOption), it doesn't call the
     // helper itself.
     byProvider: buildBreakdownView(response.by_provider),
     byModel: buildBreakdownView(response.by_model),
+    byApiKey: buildBreakdownView(response.by_api_key),
+    byAccount: buildBreakdownView(response.by_account),
     kpis: computeKpis(shares, total),
     recent: response.recent,
   };
@@ -205,4 +212,20 @@ export function buildBreakdownView(items: ErrorInsightBreakdownItem[]): ErrorIns
   }));
 
   return { keys, series };
+}
+
+// Same alias > masked key > hash-prefix precedence usage-analytics applies to
+// its api key filter (resolveUsageApiKeyLabel); the display map is the one
+// buildApiKeyDisplayMap builds from config.apiKeys + api key aliases.
+export function buildErrorInsightApiKeyOptions(
+  hashes: string[],
+  apiKeyDisplayMap: ReadonlyMap<string, ApiKeyDisplayInfo>
+): SelectOption[] {
+  return hashes.map((hash) => {
+    const display = apiKeyDisplayMap.get(hash.trim().toLowerCase());
+    return {
+      value: hash,
+      label: display?.label || display?.masked || formatApiKeyHashLabel(hash),
+    };
+  });
 }

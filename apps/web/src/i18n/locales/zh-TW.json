@@ -3224,6 +3224,8 @@
     "kpi_canceled_share": "用戶端取消佔比",
     "breakdown_provider": "按供應商",
     "breakdown_model": "按模型",
+    "breakdown_api_key": "按呼叫方密鑰",
+    "breakdown_account": "按帳號",
     "class_selected_hint": "已篩選 {{class}}，再次點擊取消"
   },
   "logs": {

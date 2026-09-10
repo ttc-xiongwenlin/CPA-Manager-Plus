@@ -3226,6 +3226,8 @@
     "kpi_canceled_share": "Client-canceled share",
     "breakdown_provider": "Failures by provider",
     "breakdown_model": "Failures by model",
+    "breakdown_api_key": "Failures by client API key",
+    "breakdown_account": "Failures by account",
     "class_selected_hint": "Showing only {{class}} — click again to clear"
   },
   "logs": {

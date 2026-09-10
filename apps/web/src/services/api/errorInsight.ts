@@ -69,6 +69,8 @@ export interface ErrorInsightResponse {
   recent: ErrorInsightRecentItem[];
   by_provider: ErrorInsightBreakdownItem[];
   by_model: ErrorInsightBreakdownItem[];
+  by_api_key: ErrorInsightBreakdownItem[];
+  by_account: ErrorInsightBreakdownItem[];
 }
 
 export interface ErrorInsightRequest {
@@ -138,13 +140,25 @@ const readArray = <T>(value: unknown, read: (entry: unknown) => T | null): T[] =
 };
 
 export function normalizeErrorInsightResponse(raw: unknown): ErrorInsightResponse {
-  if (!isRecord(raw)) return { classes: [], timeline: [], recent: [], by_provider: [], by_model: [] };
+  if (!isRecord(raw)) {
+    return {
+      classes: [],
+      timeline: [],
+      recent: [],
+      by_provider: [],
+      by_model: [],
+      by_api_key: [],
+      by_account: [],
+    };
+  }
   return {
     classes: readArray(raw.classes, readClassItem),
     timeline: readArray(raw.timeline, readTimelineItem),
     recent: readArray(raw.recent, readRecentItem),
     by_provider: readArray(raw.by_provider, readBreakdownItem),
     by_model: readArray(raw.by_model, readBreakdownItem),
+    by_api_key: readArray(raw.by_api_key, readBreakdownItem),
+    by_account: readArray(raw.by_account, readBreakdownItem),
   };
 }
 

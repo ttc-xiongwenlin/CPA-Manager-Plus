@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ERROR_INSIGHT_MAX_WINDOW_MS } from '@/services/api/errorInsight';
 import {
   buildBreakdownView,
+  buildErrorInsightApiKeyOptions,
   buildErrorInsightView,
   foldClass,
   ERROR_INSIGHT_WINDOW_PRESETS,
@@ -32,6 +33,8 @@ describe('buildErrorInsightView', () => {
         recent: [],
         by_provider: [],
         by_model: [],
+        by_api_key: [],
+        by_account: [],
       },
       { fromMs: 0, toMs: 3600000 }
     );
@@ -50,12 +53,37 @@ describe('buildErrorInsightView', () => {
 
   it('handles an empty window', () => {
     const view = buildErrorInsightView(
-      { classes: [], timeline: [], recent: [], by_provider: [], by_model: [] },
+      { classes: [], timeline: [], recent: [], by_provider: [], by_model: [], by_api_key: [], by_account: [] },
       { fromMs: 0, toMs: 0 }
     );
     expect(view.totalFailures).toBe(0);
     expect(view.shares).toEqual([]);
     expect(view.timelineSeries).toEqual([]);
+  });
+
+  it('builds byApiKey and byAccount breakdowns', () => {
+    const view = buildErrorInsightView(
+      {
+        classes: [],
+        timeline: [],
+        recent: [],
+        by_provider: [],
+        by_model: [],
+        by_api_key: [
+          { key: 'hash-a', class: 'auth', count: 1 },
+          { key: 'hash-b', class: 'rate_limited', count: 3 },
+        ],
+        by_account: [{ key: 'a@b', class: 'timeout', count: 2 }],
+      },
+      { fromMs: 0, toMs: 0 }
+    );
+    expect(view.byApiKey.keys).toEqual(['hash-b', 'hash-a']);
+    expect(view.byApiKey.series).toEqual([
+      { class: 'rate_limited', data: [3, 0] },
+      { class: 'auth', data: [0, 1] },
+    ]);
+    expect(view.byAccount.keys).toEqual(['a@b']);
+    expect(view.byAccount.series).toEqual([{ class: 'timeout', data: [2] }]);
   });
 
   it('zero-fills the hourly bucket sequence from the window start through the window end', () => {
@@ -67,6 +95,8 @@ describe('buildErrorInsightView', () => {
         recent: [],
         by_provider: [],
         by_model: [],
+        by_api_key: [],
+        by_account: [],
       },
       { fromMs: 0, toMs: 2 * 3600000 }
     );
@@ -81,7 +111,7 @@ describe('buildErrorInsightView', () => {
     // 400 hourly intervals well past the 14d preset - a genuine contract
     // violation that must actually truncate.
     const view = buildErrorInsightView(
-      { classes: [], timeline: [], recent: [], by_provider: [], by_model: [] },
+      { classes: [], timeline: [], recent: [], by_provider: [], by_model: [], by_api_key: [], by_account: [] },
       { fromMs: halfHourIntoTheHour, toMs: halfHourIntoTheHour + 400 * 3600000 }
     );
     expect(view.timelineBuckets[0]).toBe(0);
@@ -96,7 +126,7 @@ describe('buildErrorInsightView', () => {
     const toMs = Date.UTC(2026, 0, 15, 9, 23, 41, 500); // arbitrary, not on the hour
     const fromMs = toMs - ERROR_INSIGHT_MAX_WINDOW_MS;
     const view = buildErrorInsightView(
-      { classes: [], timeline: [], recent: [], by_provider: [], by_model: [] },
+      { classes: [], timeline: [], recent: [], by_provider: [], by_model: [], by_api_key: [], by_account: [] },
       { fromMs, toMs }
     );
     expect(view.timelineBuckets.length).toBe(337);
@@ -152,6 +182,8 @@ describe('kpis', () => {
         recent: [],
         by_provider: [],
         by_model: [],
+        by_api_key: [],
+        by_account: [],
       },
       { fromMs: 0, toMs: 0 }
     );
@@ -166,7 +198,7 @@ describe('kpis', () => {
 
   it('is all-zero with topClass null when total is 0', () => {
     const view = buildErrorInsightView(
-      { classes: [], timeline: [], recent: [], by_provider: [], by_model: [] },
+      { classes: [], timeline: [], recent: [], by_provider: [], by_model: [], by_api_key: [], by_account: [] },
       { fromMs: 0, toMs: 0 }
     );
     expect(view.kpis).toEqual({
@@ -183,5 +215,30 @@ describe('ERROR_INSIGHT_WINDOW_PRESETS', () => {
   it('caps at 14 days', () => {
     const max = Math.max(...ERROR_INSIGHT_WINDOW_PRESETS.map((p) => p.ms));
     expect(max).toBe(14 * 24 * 60 * 60 * 1000);
+  });
+});
+
+describe('buildErrorInsightApiKeyOptions', () => {
+  it('labels hashes with alias, then masked key, then a hash prefix', () => {
+    const aliased = 'a'.repeat(64);
+    const configured = 'b'.repeat(64);
+    const unknown = 'c'.repeat(64);
+    const displayMap = new Map([
+      [aliased, { label: 'team-a', masked: 'sk-****1234', copyValue: 'sk-1234' }],
+      [configured, { label: 'sk-****5678', masked: 'sk-****5678', copyValue: 'sk-5678' }],
+    ]);
+    expect(buildErrorInsightApiKeyOptions([aliased, configured, unknown], displayMap)).toEqual([
+      { value: aliased, label: 'team-a' },
+      { value: configured, label: 'sk-****5678' },
+      { value: unknown, label: `sha256:${unknown.slice(0, 12)}` },
+    ]);
+  });
+
+  it('matches display entries case-insensitively while keeping the raw hash as value', () => {
+    const hash = 'A'.repeat(64);
+    const displayMap = new Map([[hash.toLowerCase(), { label: 'ops', masked: 'sk-****0000' }]]);
+    expect(buildErrorInsightApiKeyOptions([hash], displayMap)).toEqual([
+      { value: hash, label: 'ops' },
+    ]);
   });
 });

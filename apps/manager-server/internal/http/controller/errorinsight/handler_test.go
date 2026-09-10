@@ -113,6 +113,8 @@ func TestBuildResponseMapsNullableFields(t *testing.T) {
 		}},
 		[]store.ErrorClassBreakdownRow{{Key: "codex", Class: "auth", Count: 3}},
 		[]store.ErrorClassBreakdownRow{{Key: "gpt-test", Class: "auth", Count: 3}},
+		[]store.ErrorClassBreakdownRow{{Key: "hash-a", Class: "auth", Count: 3}},
+		[]store.ErrorClassBreakdownRow{{Key: "a@b", Class: "auth", Count: 3}},
 	)
 	if len(got.Classes) != 1 || got.Classes[0].Class != "auth" || got.Classes[0].Count != 3 {
 		t.Fatalf("classes = %#v", got.Classes)
@@ -136,6 +138,14 @@ func TestBuildResponseMapsNullableFields(t *testing.T) {
 	wantModel := []breakdownItem{{Key: "gpt-test", Class: "auth", Count: 3}}
 	if !reflect.DeepEqual(got.ByModel, wantModel) {
 		t.Errorf("by_model = %#v, want %#v", got.ByModel, wantModel)
+	}
+	wantAPIKey := []breakdownItem{{Key: "hash-a", Class: "auth", Count: 3}}
+	if !reflect.DeepEqual(got.ByAPIKey, wantAPIKey) {
+		t.Errorf("by_api_key = %#v, want %#v", got.ByAPIKey, wantAPIKey)
+	}
+	wantAccount := []breakdownItem{{Key: "a@b", Class: "auth", Count: 3}}
+	if !reflect.DeepEqual(got.ByAccount, wantAccount) {
+		t.Errorf("by_account = %#v, want %#v", got.ByAccount, wantAccount)
 	}
 }
 

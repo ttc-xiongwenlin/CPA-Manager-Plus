@@ -19,6 +19,7 @@ import { useRequestMonitoringAvailability } from '@/hooks/useRequestMonitoringAv
 import { useAuthStore } from '@/stores';
 import { useErrorInsight } from './hooks/useErrorInsight';
 import {
+  buildErrorInsightApiKeyOptions,
   ERROR_CLASS_COLORS,
   ERROR_INSIGHT_WINDOW_PRESETS,
   foldClass,
@@ -57,8 +58,6 @@ const formatLocalBucketLabel = (bucketMs: number, locale: string) =>
   }).format(new Date(bucketMs));
 
 const formatPercent = (value: number) => `${(value * 100).toFixed(1)}%`;
-
-const maskApiKeyHash = (hash: string) => (hash.length > 8 ? `${hash.slice(0, 8)}…` : hash);
 
 const classLabel = (t: TFn, cls: string) => t(`error_insight.class.${cls}`, cls);
 
@@ -230,12 +229,14 @@ function buildTimelineOption(
 function buildBreakdownOption(
   chartTheme: ErrorChartTheme,
   breakdown: ErrorInsightBreakdownView,
-  t: TFn
+  t: TFn,
+  // Display labels parallel to breakdown.keys; defaults to the raw keys.
+  keyLabels: string[] = breakdown.keys
 ): EChartsCoreOption {
   // Reversed so the biggest key lands last in the array -> rendered at the
   // top of the category axis (echarts draws category index 0 at the bottom).
   const orderedIndices = breakdown.keys.map((_, index) => index).reverse();
-  const categories = orderedIndices.map((index) => breakdown.keys[index]);
+  const categories = orderedIndices.map((index) => keyLabels[index] ?? breakdown.keys[index]);
 
   return {
     animationDuration: 260,
@@ -304,10 +305,11 @@ export function ErrorInsightPage() {
   const managementKey = useAuthStore((state) => state.managementKey);
   const availability = useRequestMonitoringAvailability();
   const chartTheme = useErrorChartTheme();
-  const { status, view, filters, setFilters, clearFilters, refresh, options } = useErrorInsight({
-    serviceBase: availability.serviceBase,
-    managementKey,
-  });
+  const { status, view, filters, setFilters, clearFilters, refresh, options, apiKeyDisplayMap } =
+    useErrorInsight({
+      serviceBase: availability.serviceBase,
+      managementKey,
+    });
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   // Each filter's "no filter" entry names its own dimension ("All models"
@@ -335,7 +337,7 @@ export function ErrorInsightPage() {
   const apiKeyOptions = useMemo<SelectOption[]>(
     () => [
       allOptionFor('monitoring.filter_all_api_keys'),
-      ...options.apiKeys.map((hash) => ({ value: hash, label: maskApiKeyHash(hash) })),
+      ...options.apiKeys,
     ],
     [allOptionFor, options.apiKeys]
   );
@@ -380,6 +382,27 @@ export function ErrorInsightPage() {
     () =>
       view && view.byModel.keys.length > 0
         ? buildBreakdownOption(chartTheme, view.byModel, t)
+        : null,
+    [chartTheme, view, t]
+  );
+  const byApiKeyOption = useMemo<EChartsCoreOption | null>(
+    () =>
+      view && view.byApiKey.keys.length > 0
+        ? buildBreakdownOption(
+            chartTheme,
+            view.byApiKey,
+            t,
+            buildErrorInsightApiKeyOptions(view.byApiKey.keys, apiKeyDisplayMap).map(
+              (option) => option.label
+            )
+          )
+        : null,
+    [chartTheme, view, t, apiKeyDisplayMap]
+  );
+  const byAccountOption = useMemo<EChartsCoreOption | null>(
+    () =>
+      view && view.byAccount.keys.length > 0
+        ? buildBreakdownOption(chartTheme, view.byAccount, t)
         : null,
     [chartTheme, view, t]
   );
@@ -666,6 +689,39 @@ export function ErrorInsightPage() {
                   ariaLabel={t('error_insight.breakdown_model', 'Failures by model')}
                   className={styles.echartsCanvas}
                   style={{ height: Math.min(360, Math.max(220, view.byModel.keys.length * 32)) }}
+                />
+              ) : (
+                <div className={styles.chartEmptyInline}>{t('error_insight.empty')}</div>
+              )}
+            </div>
+          </section>
+
+          <section className={styles.dualChartGrid}>
+            <div className={styles.panel}>
+              <div className={styles.panelHeader}>
+                <h2>{t('error_insight.breakdown_api_key', 'Failures by client API key')}</h2>
+              </div>
+              {byApiKeyOption ? (
+                <EChartsView
+                  option={byApiKeyOption}
+                  ariaLabel={t('error_insight.breakdown_api_key', 'Failures by client API key')}
+                  className={styles.echartsCanvas}
+                  style={{ height: Math.min(360, Math.max(220, view.byApiKey.keys.length * 32)) }}
+                />
+              ) : (
+                <div className={styles.chartEmptyInline}>{t('error_insight.empty')}</div>
+              )}
+            </div>
+            <div className={styles.panel}>
+              <div className={styles.panelHeader}>
+                <h2>{t('error_insight.breakdown_account', 'Failures by account')}</h2>
+              </div>
+              {byAccountOption ? (
+                <EChartsView
+                  option={byAccountOption}
+                  ariaLabel={t('error_insight.breakdown_account', 'Failures by account')}
+                  className={styles.echartsCanvas}
+                  style={{ height: Math.min(360, Math.max(220, view.byAccount.keys.length * 32)) }}
                 />
               ) : (
                 <div className={styles.chartEmptyInline}>{t('error_insight.empty')}</div>
