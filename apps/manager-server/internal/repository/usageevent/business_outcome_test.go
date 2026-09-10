@@ -119,7 +119,6 @@ func TestBusinessOutcomeTimelineRejectsScopedFilters(t *testing.T) {
 		{FromMS: 0, ToMS: 1, IncludeFailed: true, CacheStatus: "hit"},
 		// Dimensions the latency scope index does not cover.
 		{FromMS: 0, ToMS: 1, IncludeFailed: true, SearchQuery: "query"},
-		{FromMS: 0, ToMS: 1, IncludeFailed: true, Providers: []string{"codex"}},
 		{FromMS: 0, ToMS: 1, IncludeFailed: true, Accounts: []string{"user@example.com"}},
 		{FromMS: 0, ToMS: 1, IncludeFailed: true, CredentialIDs: []string{"auth.json"}},
 	}
@@ -224,6 +223,48 @@ func TestBusinessOutcomeScopedFilterByModel(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].Requests != 1 || rows[0].Failures != 0 || rows[0].RescuedRequests != 1 {
 		t.Fatalf("model-scoped rows = %#v, want 1 bucket with requests=1 rescued=1", rows)
+	}
+}
+
+func businessOutcomeProviderEvent(hash, requestID string, timestampMS int64, authIndex, provider string, failed bool) usage.Event {
+	event := businessOutcomeScopedEvent(hash, requestID, timestampMS, authIndex, "gpt-x", failed)
+	event.Provider = provider
+	event.AuthProviderSnapshot = provider
+	return event
+}
+
+// The usage analytics provider filter must keep the business error rate:
+// the trend tab's sibling reads (timeline, model and key stats) already
+// walk the wide rows for a provider condition, so the coverage probe
+// paying the same lookup does not change the request's cost class.
+func TestBusinessOutcomeScopedFilterByProvider(t *testing.T) {
+	repo := openBusinessOutcomeRepo(t)
+	ctx := context.Background()
+	hourA := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
+	if _, err := repo.InsertBatch(ctx, []usage.Event{
+		// Retry hops accounts but keeps the provider: fully covered, rescued.
+		businessOutcomeProviderEvent("covp-p1-a1", "p1", hourA+10_000, "auth-1", "codex", true),
+		businessOutcomeProviderEvent("covp-p1-a2", "p1", hourA+20_000, "auth-2", "codex", false),
+		// Both attempts failed on the provider: business failure.
+		businessOutcomeProviderEvent("covp-p2-a1", "p2", hourA+30_000, "auth-1", "codex", true),
+		businessOutcomeProviderEvent("covp-p2-a2", "p2", hourA+40_000, "auth-2", "codex", true),
+		// Different provider: out of scope.
+		businessOutcomeProviderEvent("covp-p3-a1", "p3", hourA+50_000, "auth-3", "claude", false),
+	}); err != nil {
+		t.Fatalf("insert events: %v", err)
+	}
+
+	filter := businessOutcomeTimeFilter(hourA, hourA+3_600_000)
+	filter.Providers = []string{"codex"}
+	rows, available, err := repo.BusinessOutcomeTimelineWithFilter(ctx, filter)
+	if err != nil {
+		t.Fatalf("provider-scoped business outcome: %v", err)
+	}
+	if !available {
+		t.Fatalf("provider-scoped business outcome unavailable, want available")
+	}
+	if len(rows) != 1 || rows[0].Requests != 2 || rows[0].Failures != 1 || rows[0].RescuedRequests != 1 {
+		t.Fatalf("provider-scoped rows = %#v, want 1 bucket with requests=2 failures=1 rescued=1", rows)
 	}
 }
 

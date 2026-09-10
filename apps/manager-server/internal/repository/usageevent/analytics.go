@@ -1610,22 +1610,27 @@ group by bucket_ms
 order by bucket_ms`
 
 // BusinessOutcomeSupportsFilter reports whether the fold can answer this
-// filter at all. Scope dimensions (model, bucket auth indices, key, source)
-// are allowed: a runtime coverage check folds every request over the full
-// time window and keeps only requests whose attempts the filter covers
-// completely, so scoped folds stay truthful without the backend knowing
-// about bucket mappings. Two groups must still refuse:
+// filter at all. Scope dimensions (model, bucket auth indices, key, source,
+// provider) are allowed: a runtime coverage check folds every request over
+// the full time window and keeps only requests whose attempts the filter
+// covers completely, so scoped folds stay truthful without the backend
+// knowing about bucket mappings. Two groups must still refuse:
 //
 //   - Attempt-visibility conditions (failed-only, min latency, cache status,
 //     include_failed=false) hide individual attempts, which corrupts the
 //     per-request attempt count the coverage check compares against.
-//   - Dimensions absent from the latency scope index (provider, account
-//     snapshot, credential id, project, request type, headers, full text
-//     search) would drop the coverage probe off its covering index into
-//     wide-row lookups (measured 4.4s vs 0.3s per 7d window).
+//   - Dimensions absent from the latency scope index (account snapshot,
+//     credential id, project, request type, headers, full text search)
+//     would drop the coverage probe off its covering index into wide-row
+//     lookups (measured 4.4s vs 0.3s per 7d window).
+//
+// Provider is absent from that index too, but it is a first-class usage
+// analytics filter whose sibling reads (timeline, model and key stats)
+// already walk the wide rows of the same window, so the probe paying the
+// same lookup keeps the request in its cost class while hiding the fold
+// would blank the business error rate for every provider selection.
 func BusinessOutcomeSupportsFilter(filter AnalyticsFilter) bool {
 	return strings.TrimSpace(filter.SearchQuery) == "" &&
-		len(filter.Providers) == 0 &&
 		len(filter.Accounts) == 0 &&
 		len(filter.CredentialIDs) == 0 &&
 		len(filter.ProjectIDs) == 0 &&
@@ -1646,6 +1651,7 @@ func BusinessOutcomeSupportsFilter(filter AnalyticsFilter) bool {
 func businessOutcomeHasScope(filter AnalyticsFilter) bool {
 	return strings.TrimSpace(filter.SearchAPIKeyHash) != "" ||
 		len(filter.Models) > 0 ||
+		len(filter.Providers) > 0 ||
 		len(filter.AuthFiles) > 0 ||
 		len(filter.AuthIndices) > 0 ||
 		len(filter.APIKeyHashes) > 0 ||
