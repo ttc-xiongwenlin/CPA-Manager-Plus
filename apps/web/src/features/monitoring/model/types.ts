@@ -170,6 +170,7 @@ export type MonitoringEventRow = {
   authIndexMasked: string;
   authLabel: string;
   authLabelIdentity?: string;
+  authFileIdentity?: string;
   accountId?: string;
   projectId: string;
   apiKeyHash: string;

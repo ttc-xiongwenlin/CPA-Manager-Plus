@@ -193,6 +193,7 @@ export const buildScopeFilteredRows = (
 
     if (
       isActiveScopeFilterValue(scopeFilters.authFile) &&
+      normalizeScopeValue(row.authFileIdentity) !== authFile &&
       normalizeScopeValue(row.source) !== authFile &&
       normalizeScopeValue(row.sourceMasked) !== authFile &&
       !normalizeScopeValue(row.searchText).includes(authFile)

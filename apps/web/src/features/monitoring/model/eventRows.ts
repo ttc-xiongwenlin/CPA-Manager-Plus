@@ -66,6 +66,7 @@ export const buildEventRows = (
           detail.auth_file_snapshot ??
           detail.authFileSnapshot
       );
+      const authFileIdentity = readString(detail.auth_file_snapshot ?? detail.authFileSnapshot);
       const snapshotProvider = readString(
         detail.auth_provider_snapshot ?? detail.authProviderSnapshot
       );
@@ -232,6 +233,7 @@ export const buildEventRows = (
         authIndexMasked: maskAuthIndex(authIndex),
         authLabel: authMeta?.label || snapshotLabel || sourceMasked,
         authLabelIdentity: snapshotLabel,
+        authFileIdentity,
         accountId: accountId || undefined,
         projectId,
         apiKeyHash,
