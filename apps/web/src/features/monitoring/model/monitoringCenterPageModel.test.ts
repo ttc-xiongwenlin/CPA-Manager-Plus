@@ -269,6 +269,54 @@ describe('monitoringCenterPageModel filter options', () => {
 
     expect(state.activeDataTab).toBe('realtime');
   });
+
+  it('drops persisted scope selections when the query carries a drilldown scope', () => {
+    // Regression: the account detail link (?auth_file=B&auth_index=B) landed on
+    // top of a persisted selectedAccount=A, so the request intersected A with
+    // B and returned nothing while the panel still displayed A.
+    const persisted = {
+      ...getDefaultMonitoringCenterUiState(),
+      selectedAccount: 'auth:aaaa1111aaaa1111',
+      selectedChannel: 'codex',
+      selectedModel: 'gpt-5.4',
+      searchInput: 'stale search',
+    };
+    const state = buildMonitoringInitialStateFromQuery(
+      '?auth_file=antigravity-b%40gmail.com.json&auth_index=bbbb2222bbbb2222',
+      persisted
+    );
+
+    expect(state).toMatchObject({
+      activeDataTab: 'realtime',
+      // the linked credential lands in the account selector, not on "all"
+      selectedAccount: 'auth:bbbb2222bbbb2222',
+      selectedChannel: 'all',
+      selectedModel: 'all',
+      searchInput: '',
+    });
+  });
+
+  it('resets the account selector when the query scope carries no auth_index', () => {
+    const persisted = {
+      ...getDefaultMonitoringCenterUiState(),
+      selectedAccount: 'auth:aaaa1111aaaa1111',
+    };
+    const state = buildMonitoringInitialStateFromQuery('?auth_file=codex-b.json', persisted);
+
+    expect(state.selectedAccount).toBe('all');
+  });
+
+  it('keeps persisted scope selections when the query carries no scope at all', () => {
+    const persisted = {
+      ...getDefaultMonitoringCenterUiState(),
+      selectedAccount: 'auth:aaaa1111aaaa1111',
+      selectedModel: 'gpt-5.4',
+    };
+    const state = buildMonitoringInitialStateFromQuery('', persisted);
+
+    expect(state.selectedAccount).toBe('auth:aaaa1111aaaa1111');
+    expect(state.selectedModel).toBe('gpt-5.4');
+  });
 });
 
 describe('buildMonitoringInitialDrilldownFilters', () => {

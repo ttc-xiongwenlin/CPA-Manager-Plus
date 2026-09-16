@@ -20,7 +20,10 @@ import {
   type AccountDisplayMode,
   type AccountSortKey,
 } from '@/features/monitoring/accountOverviewState';
-import type { MonitoringCenterUiState } from '@/features/monitoring/monitoringCenterUiState';
+import {
+  getDefaultMonitoringCenterUiState,
+  type MonitoringCenterUiState,
+} from '@/features/monitoring/monitoringCenterUiState';
 import type {
   AccountQuotaEntry,
   AccountQuotaState,
@@ -36,6 +39,7 @@ import type {
   MonitoringAccountQuotaTarget,
 } from '@/features/monitoring/accountOverviewQuotaTargets';
 import { formatStatusWindowLabel } from '@/features/monitoring/model/statusWindow';
+import { buildMonitoringAccountFilterValue } from '@/features/monitoring/model/analyticsAdapters';
 import {
   fetchAntigravityQuota,
   fetchClaudeQuota,
@@ -184,6 +188,20 @@ export const buildMonitoringInitialStateFromQuery = (
     headerTraceId ||
     bucket
   );
+  const queryDefinesScope = Boolean(
+    hasRange || model || apiKeyHash || status || provider || searchQuery || hasStructuredScopeFilter
+  );
+  // A drilldown link describes the whole scope it wants. Selections persisted
+  // from an earlier visit (e.g. selectedAccount=A) must not be intersected with
+  // the link's auth_file/auth_index (B): that query matches nothing while the
+  // panel still shows A. Start those selections from their defaults instead.
+  const scope = queryDefinesScope ? getDefaultMonitoringCenterUiState() : state;
+  // auth_index is what the account selector already keys on (auth:<index>), so
+  // surface the linked credential there instead of leaving the dropdown on
+  // "all" while a hidden drilldown filter narrows the data.
+  const accountFromQuery = authIndex
+    ? buildMonitoringAccountFilterValue({ authIndices: [authIndex] })
+    : '';
 
   return {
     ...state,
@@ -192,25 +210,18 @@ export const buildMonitoringInitialStateFromQuery = (
       ? formatDateTimeLocalValue(new Date(fromMs))
       : state.customStartInput,
     customEndInput: hasRange ? formatDateTimeLocalValue(new Date(toMs)) : state.customEndInput,
-    selectedModel: model || state.selectedModel,
-    selectedProvider: provider || state.selectedProvider,
-    selectedApiKeyHash: apiKeyHash || state.selectedApiKeyHash,
-    selectedHeaderTraceId: headerTraceId || state.selectedHeaderTraceId,
+    selectedAccount: accountFromQuery || scope.selectedAccount,
+    selectedChannel: scope.selectedChannel,
+    selectedModel: model || scope.selectedModel,
+    selectedProvider: provider || scope.selectedProvider,
+    selectedApiKeyHash: apiKeyHash || scope.selectedApiKeyHash,
+    selectedHeaderTraceId: headerTraceId || scope.selectedHeaderTraceId,
     selectedStatus:
       status === 'success' || status === 'failed' || status === 'all'
         ? status
-        : state.selectedStatus,
-    searchInput: searchQuery || state.searchInput,
-    activeDataTab:
-      hasRange ||
-      model ||
-      apiKeyHash ||
-      status ||
-      provider ||
-      searchQuery ||
-      hasStructuredScopeFilter
-        ? 'realtime'
-        : state.activeDataTab,
+        : scope.selectedStatus,
+    searchInput: searchQuery || scope.searchInput,
+    activeDataTab: queryDefinesScope ? 'realtime' : state.activeDataTab,
   };
 };
 
