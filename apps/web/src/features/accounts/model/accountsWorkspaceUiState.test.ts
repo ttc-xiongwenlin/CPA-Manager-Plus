@@ -56,4 +56,19 @@ describe('accountsWorkspaceUiState', () => {
       })
     ).toEqual(DEFAULT_ACCOUNTS_WORKSPACE_UI_STATE);
   });
+
+  it('keeps a bucket filter only while the provider filter is codex', () => {
+    expect(
+      normalizeAccountsWorkspaceUiState({ providerFilter: 'codex', bucketFilter: 'team-a' })
+        .bucketFilter
+    ).toBe('team-a');
+    expect(
+      normalizeAccountsWorkspaceUiState({ providerFilter: 'all', bucketFilter: 'team-a' })
+        .bucketFilter
+    ).toBe('all');
+    expect(
+      normalizeAccountsWorkspaceUiState({ providerFilter: 'gemini', bucketFilter: 'team-a' })
+        .bucketFilter
+    ).toBe('all');
+  });
 });

@@ -220,4 +220,36 @@ describe('usageAnalyticsUiState', () => {
     expect(params.get('cache_status')).toBe('hit');
     expect(params.get('api_key_keyword')).toBe('key');
   });
+
+  it('keeps a bucket filter only while the provider filter is codex', () => {
+    expect(normalizeUsageAnalyticsFilters({ provider: 'codex', bucket: 'team-a' }).bucket).toBe(
+      'team-a'
+    );
+    expect(normalizeUsageAnalyticsFilters({ provider: 'all', bucket: 'team-a' }).bucket).toBe(
+      'all'
+    );
+    expect(normalizeUsageAnalyticsFilters({ provider: 'gemini', bucket: 'team-a' }).bucket).toBe(
+      'all'
+    );
+  });
+
+  it('ignores a bucket query param unless the query scopes to codex', () => {
+    expect(
+      buildUsageAnalyticsUiStateFromSearchParams(new URLSearchParams('bucket=team-a')).filters
+        .bucket
+    ).toBe('all');
+    expect(
+      buildUsageAnalyticsUiStateFromSearchParams(
+        new URLSearchParams('provider=codex&bucket=team-a')
+      ).filters.bucket
+    ).toBe('team-a');
+  });
+
+  it('leaves the bucket out of the URL for a non-codex provider', () => {
+    const params = buildUsageAnalyticsSearchParams({
+      activeTab: 'overview',
+      filters: { ...USAGE_ANALYTICS_DEFAULT_FILTERS, provider: 'gemini', bucket: 'team-a' },
+    });
+    expect(params.has('bucket')).toBe(false);
+  });
 });

@@ -106,7 +106,10 @@ import {
   type StatusFilter,
 } from '@/features/monitoring/model/monitoringCenterPageModel';
 import { resolveMonitoringDimensionCounts } from '@/features/monitoring/model/monitoringAnalyticsModel';
-import { collectObservedBucketNames } from '@/features/authFiles/bucketOptions';
+import {
+  collectObservedBucketNames,
+  providerSupportsBuckets,
+} from '@/features/authFiles/bucketOptions';
 import { useUsageData } from '@/features/monitoring/hooks/useUsageData';
 import { useHeaderSnapshotsLoader } from '@/features/monitoring/hooks/useHeaderSnapshotsLoader';
 import {
@@ -809,6 +812,13 @@ export function MonitoringCenterPage() {
     () => buildBucketOptionsFromValues(collectObservedBucketNames(authFiles), drilldownBucket, t),
     [authFiles, drilldownBucket, t]
   );
+  // Buckets are codex-only: the drilldown is hidden and reset the moment the
+  // provider filter leaves codex, so it can never keep narrowing another scope.
+  const showBucketFilter = providerSupportsBuckets(selectedProvider);
+  const handleProviderChange = useCallback((value: string) => {
+    setSelectedProvider(value);
+    if (!providerSupportsBuckets(value)) setDrilldownBucket('all');
+  }, []);
 
   const apiKeyOptions = useMemo(
     () => buildApiKeyOptionsFromRows(monitoringFilterOptions.apiKeyRows, selectedApiKeyHash, t),
@@ -1924,12 +1934,13 @@ export function MonitoringCenterPage() {
         combinedError={combinedError}
         usageStatisticsEnabled={Boolean(config?.usageStatisticsEnabled)}
         overallLoading={overallLoading}
+        showBucketFilter={showBucketFilter}
         t={t}
         onTimeRangeChange={handleTimeRangeChange}
         onAutoRefreshChange={setAutoRefreshMs}
         onRefreshAll={refreshAll}
         onAccountFilterChange={handleAccountFilterChange}
-        onProviderChange={setSelectedProvider}
+        onProviderChange={handleProviderChange}
         onModelChange={setSelectedModel}
         onChannelChange={setSelectedChannel}
         onBucketChange={setDrilldownBucket}

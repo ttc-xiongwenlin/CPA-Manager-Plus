@@ -14,7 +14,10 @@ import {
   IconTriangleAlert,
   IconX,
 } from '@/components/ui/icons';
-import { UNTAGGED_BUCKET_FILTER } from '@/features/authFiles/bucketOptions';
+import {
+  providerSupportsBuckets,
+  UNTAGGED_BUCKET_FILTER,
+} from '@/features/authFiles/bucketOptions';
 import { useRequestMonitoringAvailability } from '@/hooks/useRequestMonitoringAvailability';
 import { useAuthStore } from '@/stores';
 import { useErrorInsight } from './hooks/useErrorInsight';
@@ -505,13 +508,15 @@ export function ErrorInsightPage() {
               ariaLabel={t('error_insight.filter_api_key', 'API Key')}
               triggerClassName={styles.filterSelectTrigger}
             />
-            <Select
-              value={filters.bucket}
-              options={bucketOptions}
-              onChange={(bucket) => setFilters({ bucket })}
-              ariaLabel={t('error_insight.filter_bucket', 'Bucket')}
-              triggerClassName={styles.filterSelectTrigger}
-            />
+            {providerSupportsBuckets(filters.provider) ? (
+              <Select
+                value={filters.bucket}
+                options={bucketOptions}
+                onChange={(bucket) => setFilters({ bucket })}
+                ariaLabel={t('error_insight.filter_bucket', 'Bucket')}
+                triggerClassName={styles.filterSelectTrigger}
+              />
+            ) : null}
           </div>
         </div>
 

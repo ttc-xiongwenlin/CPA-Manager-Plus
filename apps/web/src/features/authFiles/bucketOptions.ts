@@ -1,7 +1,24 @@
 import { parse as parseYaml } from 'yaml';
+import { normalizeProviderKey } from '@/features/authFiles/constants';
 
 /** Reserved filter value selecting accounts that carry no bucket tag. */
 export const UNTAGGED_BUCKET_FILTER = '__untagged__';
+
+/** Buckets are a Codex-only routing concept (`codex-buckets` in config.yaml). */
+export const providerSupportsBuckets = (provider: string): boolean =>
+  normalizeProviderKey(provider) === 'codex';
+
+/**
+ * A bucket filter only makes sense while the provider filter is Codex; any other
+ * provider (including 'all') drops it back to 'all' so the hidden selector can
+ * never keep narrowing the results.
+ */
+export const scopeBucketFilterToProvider = <T extends { provider: string; bucket: string }>(
+  filters: T
+): T =>
+  filters.bucket === 'all' || providerSupportsBuckets(filters.provider)
+    ? filters
+    : { ...filters, bucket: 'all' };
 
 const sortedUnique = (values: string[]): string[] =>
   Array.from(new Set(values)).sort((left, right) => left.localeCompare(right));

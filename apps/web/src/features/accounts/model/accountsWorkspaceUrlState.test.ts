@@ -183,6 +183,7 @@ describe('accountsWorkspaceUrlState codex bucket filter', () => {
         ...DEFAULT_ACCOUNTS_WORKSPACE_UI_STATE,
         view: 'accounts',
         healthMode: 'local',
+        providerFilter: 'codex',
         bucketFilter: 'team-a',
         account: null,
         detailTab: 'overview',
@@ -192,7 +193,7 @@ describe('accountsWorkspaceUrlState codex bucket filter', () => {
       DEFAULT_ACCOUNTS_WORKSPACE_UI_STATE
     );
 
-    expect(search).toBe('?bucket=team-a');
+    expect(search).toBe('?provider=codex&bucket=team-a');
     expect(
       readAccountsWorkspaceUrlState(search, DEFAULT_ACCOUNTS_WORKSPACE_UI_STATE).bucketFilter
     ).toBe('team-a');
@@ -215,8 +216,23 @@ describe('accountsWorkspaceUrlState codex bucket filter', () => {
 
   it('carries an arbitrary configured bucket name, unlike the enum-backed filters', () => {
     expect(
-      readAccountsWorkspaceUrlState('?bucket=__untagged__', DEFAULT_ACCOUNTS_WORKSPACE_UI_STATE)
-        .bucketFilter
+      readAccountsWorkspaceUrlState(
+        '?provider=codex&bucket=__untagged__',
+        DEFAULT_ACCOUNTS_WORKSPACE_UI_STATE
+      ).bucketFilter
     ).toBe('__untagged__');
+  });
+
+  it('ignores a bucket param unless the URL scopes the workspace to codex', () => {
+    expect(
+      readAccountsWorkspaceUrlState('?bucket=team-a', DEFAULT_ACCOUNTS_WORKSPACE_UI_STATE)
+        .bucketFilter
+    ).toBe('all');
+    expect(
+      readAccountsWorkspaceUrlState(
+        '?provider=gemini&bucket=team-a',
+        DEFAULT_ACCOUNTS_WORKSPACE_UI_STATE
+      ).bucketFilter
+    ).toBe('all');
   });
 });

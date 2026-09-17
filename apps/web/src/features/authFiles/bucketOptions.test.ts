@@ -3,6 +3,8 @@ import {
   buildBucketEditOptions,
   collectObservedBucketNames,
   parseConfiguredBucketNames,
+  providerSupportsBuckets,
+  scopeBucketFilterToProvider,
   UNTAGGED_BUCKET_FILTER,
 } from './bucketOptions';
 
@@ -44,5 +46,32 @@ describe('buildBucketEditOptions', () => {
 describe('UNTAGGED_BUCKET_FILTER', () => {
   it('is the reserved sentinel', () => {
     expect(UNTAGGED_BUCKET_FILTER).toBe('__untagged__');
+  });
+});
+
+describe('providerSupportsBuckets', () => {
+  it('is true only for codex, regardless of case', () => {
+    expect(providerSupportsBuckets('codex')).toBe(true);
+    expect(providerSupportsBuckets('Codex')).toBe(true);
+    expect(providerSupportsBuckets('all')).toBe(false);
+    expect(providerSupportsBuckets('gemini')).toBe(false);
+    expect(providerSupportsBuckets('')).toBe(false);
+  });
+});
+
+describe('scopeBucketFilterToProvider', () => {
+  it('keeps the bucket when the provider is codex', () => {
+    const filters = { provider: 'codex', bucket: 'team-a', model: 'gpt-5' };
+    expect(scopeBucketFilterToProvider(filters)).toBe(filters);
+  });
+
+  it('resets the bucket to all for any other provider', () => {
+    expect(scopeBucketFilterToProvider({ provider: 'all', bucket: 'team-a' })).toEqual({
+      provider: 'all',
+      bucket: 'all',
+    });
+    expect(
+      scopeBucketFilterToProvider({ provider: 'gemini', bucket: UNTAGGED_BUCKET_FILTER })
+    ).toEqual({ provider: 'gemini', bucket: 'all' });
   });
 });

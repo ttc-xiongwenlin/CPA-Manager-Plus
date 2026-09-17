@@ -5,6 +5,7 @@ import {
   type AccountStatusFilter,
 } from './accountRows';
 import type { QuotaAccountDisplayMode } from '@/components/quota/quotaDisplay';
+import { providerSupportsBuckets } from '@/features/authFiles/bucketOptions';
 
 export type AccountOperationalFilter = 'all' | 'reauth' | 'cooldown' | 'automation' | 'recovered';
 
@@ -68,13 +69,14 @@ export const normalizeAccountsWorkspaceUiState = (value: unknown): AccountsWorks
     ? (String(sort.direction) as AccountRowSort['direction'])
     : DEFAULT_ACCOUNTS_WORKSPACE_UI_STATE.accountSort.direction;
   const pageSize = Number(value.pageSize);
+  const providerFilter =
+    typeof value.providerFilter === 'string' && value.providerFilter.trim()
+      ? value.providerFilter
+      : 'all';
 
   return {
     search: typeof value.search === 'string' ? value.search : '',
-    providerFilter:
-      typeof value.providerFilter === 'string' && value.providerFilter.trim()
-        ? value.providerFilter
-        : 'all',
+    providerFilter,
     statusFilter: STATUS_FILTERS.has(String(value.statusFilter) as AccountStatusFilter)
       ? (String(value.statusFilter) as AccountStatusFilter)
       : 'all',
@@ -84,7 +86,9 @@ export const normalizeAccountsWorkspaceUiState = (value: unknown): AccountsWorks
       ? (String(value.quotaBandFilter) as AccountQuotaBand)
       : 'all',
     bucketFilter:
-      typeof value.bucketFilter === 'string' && value.bucketFilter.trim()
+      providerSupportsBuckets(providerFilter) &&
+      typeof value.bucketFilter === 'string' &&
+      value.bucketFilter.trim()
         ? value.bucketFilter
         : 'all',
     operationalFilter: OPERATIONAL_FILTERS.has(String(value.operationalFilter))

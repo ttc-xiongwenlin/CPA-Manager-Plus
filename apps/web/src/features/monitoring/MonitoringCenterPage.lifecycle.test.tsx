@@ -25,6 +25,12 @@ const mocks = vi.hoisted(() => ({
     onLoadAccountQuota: (rowId: string, force: boolean) => void | Promise<void>;
   },
   lastHeaderRefresh: null as null | (() => void | Promise<void>),
+  lastFiltersPanelProps: null as null | {
+    showBucketFilter: boolean;
+    selectedBucket: string;
+    onProviderChange: (value: string) => void;
+    onBucketChange: (value: string) => void;
+  },
   loadHeaderSnapshots: vi.fn(async () => undefined),
   refreshMeta: vi.fn(),
   requestAccountQuota: vi.fn(),
@@ -281,7 +287,10 @@ vi.mock('@/features/monitoring/components/MonitoringCustomRangeModal', () => ({
   MonitoringCustomRangeModal: () => null,
 }));
 vi.mock('@/features/monitoring/components/MonitoringFiltersPanel', () => ({
-  MonitoringFiltersPanel: () => null,
+  MonitoringFiltersPanel: (props: NonNullable<typeof mocks.lastFiltersPanelProps>) => {
+    mocks.lastFiltersPanelProps = props;
+    return null;
+  },
 }));
 vi.mock('@/features/monitoring/components/UsageImportProgressModal', () => ({
   UsageImportProgressModal: () => null,
@@ -996,5 +1005,59 @@ describe('MonitoringCenterPage credential quota revision lifecycle', () => {
       await act(async () => renderer.unmount());
       rendererMounted = false;
     }
+  });
+});
+
+describe('MonitoringCenterPage bucket drilldown scope', () => {
+  let renderer!: ReactTestRenderer;
+
+  beforeEach(async () => {
+    useAccountCredentialMutationRevisionStore.getState().clearForTests();
+    mocks.authFiles = [makeCodexFile('1', 'codex.json')];
+    mocks.nextAuthFiles = null;
+    mocks.lastFiltersPanelProps = null;
+    mocks.refreshMeta.mockReset().mockImplementation(() => ({
+      authFiles: mocks.authFiles,
+      authFilesLoaded: true as const,
+      channels: [] as const,
+      channelsLoaded: true as const,
+      error: '',
+    }));
+    mocks.requestAccountQuota.mockReset();
+    await act(async () => {
+      renderer = create(<MonitoringCenterPage />);
+      await flushPromises();
+    });
+  });
+
+  afterEach(() => {
+    act(() => {
+      renderer.unmount();
+    });
+  });
+
+  it('offers the bucket filter only while the provider filter is codex and resets it otherwise', async () => {
+    const panel = () => {
+      if (!mocks.lastFiltersPanelProps) throw new Error('Filters panel not rendered');
+      return mocks.lastFiltersPanelProps;
+    };
+
+    expect(panel().showBucketFilter).toBe(false);
+
+    await act(async () => {
+      panel().onProviderChange('codex');
+    });
+    expect(panel().showBucketFilter).toBe(true);
+
+    await act(async () => {
+      panel().onBucketChange('anon');
+    });
+    expect(panel().selectedBucket).toBe('anon');
+
+    await act(async () => {
+      panel().onProviderChange('gemini');
+    });
+    expect(panel().showBucketFilter).toBe(false);
+    expect(panel().selectedBucket).toBe('all');
   });
 });

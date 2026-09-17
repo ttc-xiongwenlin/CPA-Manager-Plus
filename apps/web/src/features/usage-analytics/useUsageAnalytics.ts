@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { scopeBucketFilterToProvider } from '@/features/authFiles/bucketOptions';
 import { useMonitoringAnalytics } from '@/features/monitoring/hooks/useMonitoringAnalytics';
 import { useUsageData } from '@/features/monitoring/hooks/useUsageData';
 import { buildApiKeyDisplayMap } from '@/features/monitoring/model/apiKeys';
@@ -674,7 +675,7 @@ export function useUsageAnalytics() {
   );
   const setFilters = useCallback((patch: Partial<UsageAnalyticsFiltersState>) => {
     setFiltersState((current) => {
-      const next = { ...current, ...patch };
+      const next = scopeBucketFilterToProvider({ ...current, ...patch });
       writeUsageAnalyticsUiState({ filters: next });
       return next;
     });
@@ -693,10 +694,10 @@ export function useUsageAnalytics() {
 
   const clearFilter = useCallback((key: UsageSelectedFilterKey) => {
     setFiltersState((current) => {
-      const next = {
+      const next = scopeBucketFilterToProvider({
         ...current,
         [key]: 'all',
-      };
+      });
       writeUsageAnalyticsUiState({ filters: next });
       return next;
     });

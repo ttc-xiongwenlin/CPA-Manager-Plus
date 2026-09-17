@@ -351,4 +351,27 @@ describe('useUsageAnalytics request orchestration', () => {
     expect(latestResult?.credentialTrendError).toBe('timeline failed');
     expect(latestResult?.credentialRows).toHaveLength(1);
   });
+
+  it('drops the bucket filter once the provider filter leaves codex', async () => {
+    await renderHook();
+
+    await act(async () => {
+      latestResult?.setFilters({ provider: 'codex', bucket: 'team-a' });
+    });
+    expect(latestResult?.filters.bucket).toBe('team-a');
+
+    await act(async () => {
+      latestResult?.setFilters({ provider: 'gemini' });
+    });
+    expect(latestResult?.filters.provider).toBe('gemini');
+    expect(latestResult?.filters.bucket).toBe('all');
+
+    await act(async () => {
+      latestResult?.setFilters({ provider: 'codex', bucket: 'team-a' });
+    });
+    await act(async () => {
+      latestResult?.clearFilter('provider');
+    });
+    expect(latestResult?.filters.bucket).toBe('all');
+  });
 });

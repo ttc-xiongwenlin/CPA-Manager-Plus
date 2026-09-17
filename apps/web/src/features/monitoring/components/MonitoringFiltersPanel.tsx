@@ -27,6 +27,8 @@ type MonitoringFiltersPanelProps = {
   combinedError: string | null;
   usageStatisticsEnabled: boolean;
   overallLoading: boolean;
+  /** Buckets are codex-only; the page passes false whenever the provider filter is not codex. */
+  showBucketFilter: boolean;
   t: TFunction;
   onTimeRangeChange: (value: MonitoringTimeRange) => void;
   onAutoRefreshChange: (value: string) => void;
@@ -87,6 +89,7 @@ export function MonitoringFiltersPanel({
   combinedError,
   usageStatisticsEnabled,
   overallLoading,
+  showBucketFilter,
   t,
   onTimeRangeChange,
   onAutoRefreshChange,
@@ -217,13 +220,15 @@ export function MonitoringFiltersPanel({
             ariaLabel={t('monitoring.filter_channel')}
             triggerClassName={styles.filterSelectTrigger}
           />
-          <Select
-            value={selectedBucket}
-            options={bucketOptions}
-            onChange={onBucketChange}
-            ariaLabel={t('monitoring.filter_bucket')}
-            triggerClassName={styles.filterSelectTrigger}
-          />
+          {showBucketFilter ? (
+            <Select
+              value={selectedBucket}
+              options={bucketOptions}
+              onChange={onBucketChange}
+              ariaLabel={t('monitoring.filter_bucket')}
+              triggerClassName={styles.filterSelectTrigger}
+            />
+          ) : null}
           <Select
             value={selectedApiKeyHash}
             options={apiKeyOptions}

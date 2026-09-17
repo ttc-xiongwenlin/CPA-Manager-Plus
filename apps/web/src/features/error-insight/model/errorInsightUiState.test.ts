@@ -4,6 +4,7 @@ import {
   buildErrorInsightSearchParams,
   buildErrorInsightUiStateFromSearchParams,
   getDefaultErrorInsightFilters,
+  normalizeErrorInsightFilters,
   readErrorInsightUiState,
   writeErrorInsightUiState,
 } from './errorInsightUiState';
@@ -67,7 +68,7 @@ describe('errorInsightUiState', () => {
     writeErrorInsightUiState({
       windowKey: '7d',
       model: 'gpt-4o',
-      provider: 'openai',
+      provider: 'codex',
       apiKeyHash: 'abc123',
       bucket: 'bucket-1',
       authFile: 'auth.json',
@@ -78,7 +79,7 @@ describe('errorInsightUiState', () => {
     expect(JSON.parse(storage.getItem(ERROR_INSIGHT_UI_STATE_STORAGE_KEY) ?? '{}')).toEqual({
       windowKey: '7d',
       model: 'gpt-4o',
-      provider: 'openai',
+      provider: 'codex',
       apiKeyHash: 'abc123',
       bucket: 'bucket-1',
       authFile: 'auth.json',
@@ -88,7 +89,7 @@ describe('errorInsightUiState', () => {
     expect(readErrorInsightUiState()).toEqual({
       windowKey: '7d',
       model: 'gpt-4o',
-      provider: 'openai',
+      provider: 'codex',
       apiKeyHash: 'abc123',
       bucket: 'bucket-1',
       authFile: 'auth.json',
@@ -128,7 +129,7 @@ describe('errorInsightUiState', () => {
     const params = buildErrorInsightSearchParams({
       windowKey: '6h',
       model: 'gpt-4o',
-      provider: 'openai',
+      provider: 'codex',
       apiKeyHash: 'abc123',
       bucket: 'bucket-1',
       authFile: 'auth.json',
@@ -138,7 +139,7 @@ describe('errorInsightUiState', () => {
 
     expect(params.get('window')).toBe('6h');
     expect(params.get('model')).toBe('gpt-4o');
-    expect(params.get('provider')).toBe('openai');
+    expect(params.get('provider')).toBe('codex');
     expect(params.get('api_key_hash')).toBe('abc123');
     expect(params.get('bucket')).toBe('bucket-1');
     expect(params.get('auth_file')).toBe('auth.json');
@@ -177,5 +178,41 @@ describe('errorInsightUiState', () => {
 
     expect(state.windowKey).toBe('6h');
     expect(state.selectedClass).toBe('auth');
+  });
+
+  it('keeps a bucket filter only while the provider filter is codex', () => {
+    const base = getDefaultErrorInsightFilters();
+    expect(
+      normalizeErrorInsightFilters({ ...base, provider: 'codex', bucket: 'bucket-1' }).bucket
+    ).toBe('bucket-1');
+    expect(
+      normalizeErrorInsightFilters({ ...base, provider: 'all', bucket: 'bucket-1' }).bucket
+    ).toBe('all');
+    expect(
+      normalizeErrorInsightFilters({ ...base, provider: 'openai', bucket: 'bucket-1' }).bucket
+    ).toBe('all');
+  });
+
+  it('ignores a bucket query param unless the query scopes to codex', () => {
+    const fallback = getDefaultErrorInsightFilters();
+    expect(
+      buildErrorInsightUiStateFromSearchParams(new URLSearchParams('bucket=bucket-1'), fallback)
+        .bucket
+    ).toBe('all');
+    expect(
+      buildErrorInsightUiStateFromSearchParams(
+        new URLSearchParams('provider=codex&bucket=bucket-1'),
+        fallback
+      ).bucket
+    ).toBe('bucket-1');
+  });
+
+  it('leaves the bucket out of the URL for a non-codex provider', () => {
+    const params = buildErrorInsightSearchParams({
+      ...getDefaultErrorInsightFilters(),
+      provider: 'openai',
+      bucket: 'bucket-1',
+    });
+    expect(params.has('bucket')).toBe(false);
   });
 });

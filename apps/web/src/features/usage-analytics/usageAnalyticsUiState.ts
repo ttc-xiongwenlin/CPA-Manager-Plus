@@ -1,3 +1,4 @@
+import { scopeBucketFilterToProvider } from '@/features/authFiles/bucketOptions';
 import {
   USAGE_ANALYTICS_DEFAULT_FILTERS,
   USAGE_ANALYTICS_TABS,
@@ -107,7 +108,7 @@ export const normalizeUsageAnalyticsFilters = (value: unknown): UsageAnalyticsFi
   const record = value as Record<string, unknown>;
   const customRange = normalizeCustomRange(record.customRange);
   const timeRange = normalizeTimeRange(record.timeRange);
-  return {
+  return scopeBucketFilterToProvider({
     timeRange: timeRange === 'custom' && !customRange ? defaults.timeRange : timeRange,
     customRange,
     granularity: normalizeGranularity(record.granularity),
@@ -121,7 +122,7 @@ export const normalizeUsageAnalyticsFilters = (value: unknown): UsageAnalyticsFi
     minLatencyMs: normalizeLatency(record.minLatencyMs),
     cacheStatus: normalizeCacheStatus(record.cacheStatus),
     apiKeyKeyword: normalizeInputValue(record.apiKeyKeyword),
-  };
+  });
 };
 
 export const normalizeUsageAnalyticsUiState = (value: unknown): UsageAnalyticsUiState => {

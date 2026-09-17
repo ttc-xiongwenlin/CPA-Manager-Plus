@@ -8,7 +8,10 @@ import type {
   XaiBillingSummary,
 } from '@/types';
 import type { UsageHeaderSnapshot } from '@/services/api/usageService';
-import { UNTAGGED_BUCKET_FILTER } from '@/features/authFiles/bucketOptions';
+import {
+  providerSupportsBuckets,
+  UNTAGGED_BUCKET_FILTER,
+} from '@/features/authFiles/bucketOptions';
 import type {
   MonitoringAccountRow,
   MonitoringApiKeyRow,
@@ -252,7 +255,11 @@ export const buildMonitoringInitialDrilldownFilters = (
     // selectors where 'all' means unset — see buildBucketOptionsFromValues and
     // hasActiveMonitoringScopeFilter below. Defaulting this to '' would leave
     // the Select with a value that matches no option, rendering blank.
-    bucket: params.get('bucket')?.trim() || 'all',
+    // Buckets are codex-only: a link that scopes to any other provider (or
+    // none) drops the tag rather than narrowing an unrelated scope.
+    bucket: providerSupportsBuckets(params.get('provider') ?? '')
+      ? params.get('bucket')?.trim() || 'all'
+      : 'all',
   };
 };
 

@@ -1155,4 +1155,19 @@ describe('UsageAnalyticsPage', () => {
         .some((button) => getText(button).includes('common.refresh'))
     ).toBe(true);
   });
+
+  it('shows the bucket filter only while the provider filter is codex', () => {
+    const findBucketSelect = (renderer: ReactTestRenderer) =>
+      renderer.root
+        .findAllByType(Select)
+        .find((node) => node.props.ariaLabel === 'usage_analytics.filter_bucket');
+
+    mocks.usageState = createUsageState();
+    expect(findBucketSelect(renderPage())).toBeUndefined();
+
+    mocks.usageState = createUsageState({
+      filters: { ...USAGE_ANALYTICS_DEFAULT_FILTERS, provider: 'codex' },
+    });
+    expect(findBucketSelect(renderPage())).toBeDefined();
+  });
 });

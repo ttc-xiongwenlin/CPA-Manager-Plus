@@ -97,6 +97,7 @@ import {
 } from './usageAnalyticsPresentation';
 import {
   collectObservedBucketNames,
+  providerSupportsBuckets,
   UNTAGGED_BUCKET_FILTER,
 } from '@/features/authFiles/bucketOptions';
 import styles from './UsageAnalyticsPage.module.scss';
@@ -2837,13 +2838,15 @@ function UsageAnalyticsPageInner() {
                 ariaLabel={t('usage_analytics.filter_provider')}
                 triggerClassName={styles.filterSelectTrigger}
               />
-              <Select
-                value={usage.filters.bucket}
-                options={bucketOptions}
-                onChange={(bucket) => updateFilters({ bucket })}
-                ariaLabel={t('usage_analytics.filter_bucket')}
-                triggerClassName={styles.filterSelectTrigger}
-              />
+              {providerSupportsBuckets(usage.filters.provider) ? (
+                <Select
+                  value={usage.filters.bucket}
+                  options={bucketOptions}
+                  onChange={(bucket) => updateFilters({ bucket })}
+                  ariaLabel={t('usage_analytics.filter_bucket')}
+                  triggerClassName={styles.filterSelectTrigger}
+                />
+              ) : null}
               <Select
                 value={usage.filters.status}
                 options={statusOptions}

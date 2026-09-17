@@ -61,6 +61,7 @@ import {
   UNTAGGED_BUCKET_FILTER,
   buildBucketEditOptions,
   collectObservedBucketNames,
+  providerSupportsBuckets,
 } from '@/features/authFiles/bucketOptions';
 import { useAuthFilesBucketOptions } from '@/features/authFiles/hooks/useAuthFilesBucketOptions';
 import { useAuthFilesOauth } from '@/features/authFiles/hooks/useAuthFilesOauth';
@@ -3772,6 +3773,12 @@ export function AccountsPage() {
       ]),
     [bucketFilter, bucketOptions, files]
   );
+  // Buckets are codex-only: leaving the codex tab drops the tag so the hidden
+  // filter never keeps narrowing another provider's list.
+  const handleProviderFilterChange = useCallback((value: string) => {
+    setProviderFilter(value);
+    if (!providerSupportsBuckets(value)) setBucketFilter('all');
+  }, []);
   const recommendations = useMemo(
     () => buildAccountRecommendations(rows, requestEvidenceBySelectionKey),
     [requestEvidenceBySelectionKey, rows]
@@ -6330,7 +6337,7 @@ export function AccountsPage() {
           triggerClassName={styles.toolbarSelectTrigger}
         />
       </div>
-      {bucketFilterOptions.length > 0 ? (
+      {providerSupportsBuckets(providerFilter) && bucketFilterOptions.length > 0 ? (
         <div className={styles.filterField}>
           <Select
             value={bucketFilter}
@@ -6391,7 +6398,7 @@ export function AccountsPage() {
       <AccountProviderTabs
         rows={rows}
         value={providerFilter}
-        onChange={setProviderFilter}
+        onChange={handleProviderFilterChange}
         resolvedTheme={resolvedTheme}
       />
       <section className={styles.toolbar}>

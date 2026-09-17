@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { SelectOption } from '@/components/ui/Select';
-import { UNTAGGED_BUCKET_FILTER } from '@/features/authFiles/bucketOptions';
+import {
+  scopeBucketFilterToProvider,
+  UNTAGGED_BUCKET_FILTER,
+} from '@/features/authFiles/bucketOptions';
 import { useAuthFilesBucketOptions } from '@/features/authFiles/hooks/useAuthFilesBucketOptions';
 import { useMonitoringAnalytics } from '@/features/monitoring/hooks/useMonitoringAnalytics';
 import { useUsageData } from '@/features/monitoring/hooks/useUsageData';
@@ -197,7 +200,7 @@ export function useErrorInsight({ serviceBase, managementKey }: UseErrorInsightO
     // Persistence happens in the sync effect below (runs on every `filters`
     // change), not here — a functional updater must stay pure, and
     // StrictMode double-invokes it, which would double-write storage.
-    setFiltersState((current) => ({ ...current, ...patch }));
+    setFiltersState((current) => scopeBucketFilterToProvider({ ...current, ...patch }));
     // windowKey drives the selector query's time bounds too — refresh its
     // anchor here rather than in a synchronizing effect (React discourages
     // calling setState from an effect body for values that only need to

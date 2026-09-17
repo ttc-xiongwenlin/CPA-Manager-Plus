@@ -328,8 +328,17 @@ describe('buildMonitoringInitialDrilldownFilters', () => {
     expect(buildMonitoringInitialDrilldownFilters('?other=1').bucket).toBe('all');
   });
 
-  it('reads an explicit bucket query param verbatim', () => {
-    expect(buildMonitoringInitialDrilldownFilters('?bucket=anon').bucket).toBe('anon');
+  it('reads an explicit bucket query param verbatim when the link scopes to codex', () => {
+    expect(buildMonitoringInitialDrilldownFilters('?provider=codex&bucket=anon').bucket).toBe(
+      'anon'
+    );
+  });
+
+  it('drops the bucket query param unless the link scopes to codex', () => {
+    expect(buildMonitoringInitialDrilldownFilters('?bucket=anon').bucket).toBe('all');
+    expect(buildMonitoringInitialDrilldownFilters('?provider=gemini&bucket=anon').bucket).toBe(
+      'all'
+    );
   });
 
   it('still defaults the other structured drilldown filters to "" (unset)', () => {

@@ -1,3 +1,4 @@
+import { scopeBucketFilterToProvider } from '@/features/authFiles/bucketOptions';
 import { ERROR_CLASSES } from '@/services/api/errorInsight';
 import { ERROR_INSIGHT_WINDOW_PRESETS } from './errorInsightModel';
 
@@ -49,7 +50,7 @@ export function normalizeErrorInsightFilters(value: unknown): ErrorInsightFilter
     return getDefaultErrorInsightFilters();
   }
   const record = value as Record<string, unknown>;
-  return {
+  return scopeBucketFilterToProvider({
     windowKey: normalizeWindowKey(record.windowKey),
     model: normalizeSelectValue(record.model),
     provider: normalizeSelectValue(record.provider),
@@ -58,7 +59,7 @@ export function normalizeErrorInsightFilters(value: unknown): ErrorInsightFilter
     authFile: normalizeSelectValue(record.authFile),
     searchQuery: normalizeInputValue(record.searchQuery),
     selectedClass: normalizeSelectedClass(record.selectedClass),
-  };
+  });
 }
 
 export function readErrorInsightUiState(): ErrorInsightFiltersState {
@@ -135,7 +136,7 @@ export function buildErrorInsightUiStateFromSearchParams(
   const selectedClass =
     classParam !== null && ERROR_CLASS_SET.has(classParam) ? classParam : fallback.selectedClass;
 
-  return {
+  return scopeBucketFilterToProvider({
     windowKey,
     model: params.has('model') ? normalizeSelectValue(params.get('model')) : fallback.model,
     provider: params.has('provider')
@@ -152,5 +153,5 @@ export function buildErrorInsightUiStateFromSearchParams(
       ? normalizeInputValue(params.get('search'))
       : fallback.searchQuery,
     selectedClass,
-  };
+  });
 }

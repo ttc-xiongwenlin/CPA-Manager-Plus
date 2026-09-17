@@ -951,6 +951,15 @@ const renderAccountsPage = async () => {
   return renderer!;
 };
 
+const clickAccountsProviderTab = async (renderer: ReactTestRenderer, provider: string) => {
+  await act(async () => {
+    renderer.root
+      .findByProps({ id: `accounts-provider-filter-${provider}` })
+      .props.onClick({ preventDefault: () => {} });
+    await Promise.resolve();
+  });
+};
+
 const findDetailButtonByName = (renderer: ReactTestRenderer, fileName: string) => {
   const button = renderer.root
     .findAll((node) => node.type === 'button')
@@ -3550,6 +3559,7 @@ describe('AccountsPage replacement flows', () => {
     ];
 
     const renderer = await renderAccountsPage();
+    await clickAccountsProviderTab(renderer, 'codex');
     const bucketSelect = renderer.root
       .findAllByType(Select)
       .find((node) => node.props.ariaLabel === 'auth_files.bucket_filter_label');
@@ -3590,12 +3600,58 @@ describe('AccountsPage replacement flows', () => {
     mocks.files = [makeCodexFile('a.json', 'auth-a', 'a@example.com')];
 
     const renderer = await renderAccountsPage();
+    await clickAccountsProviderTab(renderer, 'codex');
 
     expect(
       renderer.root
         .findAllByType(Select)
         .some((node) => node.props.ariaLabel === 'auth_files.bucket_filter_label')
     ).toBe(false);
+  });
+
+  it('hides the bucket filter outside the codex provider tab', async () => {
+    mocks.files = [
+      { ...makeCodexFile('a.json', 'auth-a', 'a@example.com'), bucket: 'team-a' } as AuthFileItem,
+    ];
+
+    const renderer = await renderAccountsPage();
+    const hasBucketSelect = () =>
+      renderer.root
+        .findAllByType(Select)
+        .some((node) => node.props.ariaLabel === 'auth_files.bucket_filter_label');
+
+    expect(hasBucketSelect()).toBe(false);
+
+    await clickAccountsProviderTab(renderer, 'codex');
+    expect(hasBucketSelect()).toBe(true);
+  });
+
+  it('resets the bucket filter when leaving the codex provider tab', async () => {
+    mocks.files = [
+      { ...makeCodexFile('a.json', 'auth-a', 'a@example.com'), bucket: 'team-a' } as AuthFileItem,
+      { ...makeCodexFile('b.json', 'auth-b', 'b@example.com'), bucket: 'team-b' } as AuthFileItem,
+    ];
+
+    const renderer = await renderAccountsPage();
+    const cardCount = (index: number) =>
+      renderer.root.findAllByProps({
+        'data-account-card': getAuthFileSelectionKey(mocks.files[index]),
+      }).length;
+
+    await clickAccountsProviderTab(renderer, 'codex');
+    const bucketSelect = renderer.root
+      .findAllByType(Select)
+      .find((node) => node.props.ariaLabel === 'auth_files.bucket_filter_label');
+    if (!bucketSelect) throw new Error('Accounts bucket filter not found');
+
+    await act(async () => {
+      bucketSelect.props.onChange('team-b');
+      await Promise.resolve();
+    });
+    expect([cardCount(0), cardCount(1)]).toEqual([0, 1]);
+
+    await clickAccountsProviderTab(renderer, 'all');
+    expect([cardCount(0), cardCount(1)]).toEqual([1, 1]);
   });
 
   it('updates the accounts view query when switching views', async () => {

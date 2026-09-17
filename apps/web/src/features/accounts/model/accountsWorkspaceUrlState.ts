@@ -1,6 +1,7 @@
 import type { DetailTab, AccountsView } from './accountsPagePresentation';
 import type { AccountsWorkspaceUiState } from './accountsWorkspaceUiState';
 import { ACCOUNT_STATUS_FILTERS } from './accountRows';
+import { providerSupportsBuckets } from '@/features/authFiles/bucketOptions';
 import type { CredentialHealthInspectionMode } from '@/features/monitoring/model/credentialInspectionSnapshot';
 
 export type AccountsOAuthEditor = 'excluded' | 'alias';
@@ -95,18 +96,23 @@ export const readAccountsWorkspaceUrlState = (
   const pageSizeValue = Number(params.get('pageSize'));
   const editorValue = params.get('editor');
   const editor = editorValue === 'excluded' || editorValue === 'alias' ? editorValue : null;
+  const providerFilter = readNonEmpty(params, 'provider', fallback.providerFilter);
 
   return {
     ...fallback,
     view,
     healthMode: readEnum(params, 'healthMode', HEALTH_MODE_SET, 'local'),
     search: params.get('search') ?? fallback.search,
-    providerFilter: readNonEmpty(params, 'provider', fallback.providerFilter),
+    providerFilter,
     statusFilter: readEnum(params, 'status', STATUS_FILTER_SET, fallback.statusFilter),
     planFilter: readNonEmpty(params, 'plan', fallback.planFilter),
     quotaBandFilter: readEnum(params, 'quota', QUOTA_BAND_SET, fallback.quotaBandFilter),
     // Free-form rather than enum-backed: bucket names come from CPA's config.yaml.
-    bucketFilter: readNonEmpty(params, 'bucket', fallback.bucketFilter),
+    // Buckets are codex-only, so the tag is dropped whenever the workspace
+    // lands on any other provider tab.
+    bucketFilter: providerSupportsBuckets(providerFilter)
+      ? readNonEmpty(params, 'bucket', fallback.bucketFilter)
+      : 'all',
     operationalFilter: readEnum(
       params,
       'operation',
