@@ -257,7 +257,9 @@ export function MonitoringCenterPage() {
   const [drilldownAuthFile, setDrilldownAuthFile] = useState(
     () => initialMonitoringDrilldownFilters.current.authFile
   );
-  const [drilldownAuthIndex] = useState(() => initialMonitoringDrilldownFilters.current.authIndex);
+  const [drilldownAuthIndex, setDrilldownAuthIndex] = useState(
+    () => initialMonitoringDrilldownFilters.current.authIndex
+  );
   const [drilldownProjectId, setDrilldownProjectId] = useState(
     () => initialMonitoringDrilldownFilters.current.projectId
   );
@@ -815,10 +817,37 @@ export function MonitoringCenterPage() {
   // Buckets are codex-only: the drilldown is hidden and reset the moment the
   // provider filter leaves codex, so it can never keep narrowing another scope.
   const showBucketFilter = providerSupportsBuckets(selectedProvider);
-  const handleProviderChange = useCallback((value: string) => {
-    setSelectedProvider(value);
-    if (!providerSupportsBuckets(value)) setDrilldownBucket('all');
+  // auth_file / auth_index / project_id arrive only through drilldown links and
+  // have no control of their own. Once the operator picks a different "who"
+  // (account, provider, channel, bucket) they would silently intersect with it
+  // and match nothing, so every such change drops them.
+  const clearCredentialDrilldown = useCallback(() => {
+    setDrilldownAuthFile('');
+    setDrilldownAuthIndex('');
+    setDrilldownProjectId('');
   }, []);
+  const handleProviderChange = useCallback(
+    (value: string) => {
+      setSelectedProvider(value);
+      if (!providerSupportsBuckets(value)) setDrilldownBucket('all');
+      clearCredentialDrilldown();
+    },
+    [clearCredentialDrilldown]
+  );
+  const handleChannelChange = useCallback(
+    (value: string) => {
+      setSelectedChannel(value);
+      clearCredentialDrilldown();
+    },
+    [clearCredentialDrilldown]
+  );
+  const handleBucketChange = useCallback(
+    (value: string) => {
+      setDrilldownBucket(value);
+      clearCredentialDrilldown();
+    },
+    [clearCredentialDrilldown]
+  );
 
   const apiKeyOptions = useMemo(
     () => buildApiKeyOptionsFromRows(monitoringFilterOptions.apiKeyRows, selectedApiKeyHash, t),
@@ -1160,6 +1189,7 @@ export function MonitoringCenterPage() {
     setSelectedHeaderTraceId('all');
     setSelectedStatus('all');
     setDrilldownAuthFile('');
+    setDrilldownAuthIndex('');
     setDrilldownProjectId('');
     setDrilldownRequestType('');
     setDrilldownMinLatencyMs(undefined);
@@ -1467,13 +1497,14 @@ export function MonitoringCenterPage() {
   const handleAccountFilterChange = useCallback(
     (value: string) => {
       setSelectedAccount(value);
+      clearCredentialDrilldown();
 
       if (focusedAccountId) {
         focusSnapshotRef.current = null;
         setFocusedAccountId(null);
       }
     },
-    [focusedAccountId]
+    [clearCredentialDrilldown, focusedAccountId]
   );
 
   const handleAccountPageSizeChange = useCallback(
@@ -1942,8 +1973,8 @@ export function MonitoringCenterPage() {
         onAccountFilterChange={handleAccountFilterChange}
         onProviderChange={handleProviderChange}
         onModelChange={setSelectedModel}
-        onChannelChange={setSelectedChannel}
-        onBucketChange={setDrilldownBucket}
+        onChannelChange={handleChannelChange}
+        onBucketChange={handleBucketChange}
         onApiKeyChange={setSelectedApiKeyHash}
         onStatusChange={(value) => setSelectedStatus(value as StatusFilter)}
         onSearchChange={setSearchInput}

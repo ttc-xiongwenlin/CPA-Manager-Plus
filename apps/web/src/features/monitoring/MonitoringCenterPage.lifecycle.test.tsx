@@ -28,9 +28,15 @@ const mocks = vi.hoisted(() => ({
   lastFiltersPanelProps: null as null | {
     showBucketFilter: boolean;
     selectedBucket: string;
+    selectedAccount: string;
+    onAccountFilterChange: (value: string) => void;
     onProviderChange: (value: string) => void;
     onBucketChange: (value: string) => void;
   },
+  lastMonitoringDataParams: null as null | {
+    scopeFilters?: { authFile?: string; authIndex?: string; projectId?: string };
+  },
+  locationSearch: '',
   loadHeaderSnapshots: vi.fn(async () => undefined),
   refreshMeta: vi.fn(),
   requestAccountQuota: vi.fn(),
@@ -50,7 +56,13 @@ const makeCodexFile = (authIndex: string, name: string): AuthFileItem =>
   }) as AuthFileItem;
 
 vi.mock('react-router-dom', () => ({
-  useLocation: () => ({ pathname: '/monitoring', search: '', hash: '', state: null, key: 'test' }),
+  useLocation: () => ({
+    pathname: '/monitoring',
+    search: mocks.locationSearch,
+    hash: '',
+    state: null,
+    key: 'test',
+  }),
 }));
 
 vi.mock('react-i18next', async (importOriginal) => {
@@ -87,7 +99,8 @@ vi.mock('@/features/monitoring/hooks/useMonitoringData', async () => {
   return {
     buildRealtimeMonitorRows: () => [],
     getRangeBounds: () => ({ startMs: 0, endMs: Date.now() }),
-    useMonitoringData: () => {
+    useMonitoringData: (params: NonNullable<typeof mocks.lastMonitoringDataParams>) => {
+      mocks.lastMonitoringDataParams = params;
       const [, setRevision] = React.useState(0);
       const refreshMeta = React.useCallback(() => {
         const applyRefresh = (payload: unknown) => {
@@ -1059,5 +1072,71 @@ describe('MonitoringCenterPage bucket drilldown scope', () => {
     });
     expect(panel().showBucketFilter).toBe(false);
     expect(panel().selectedBucket).toBe('all');
+  });
+});
+
+describe('MonitoringCenterPage credential drilldown scope', () => {
+  let renderer!: ReactTestRenderer;
+
+  const mount = async () => {
+    await act(async () => {
+      renderer = create(<MonitoringCenterPage />);
+      await flushPromises();
+    });
+  };
+  const panel = () => {
+    if (!mocks.lastFiltersPanelProps) throw new Error('Filters panel not rendered');
+    return mocks.lastFiltersPanelProps;
+  };
+  const scope = () => mocks.lastMonitoringDataParams?.scopeFilters ?? {};
+
+  beforeEach(() => {
+    useAccountCredentialMutationRevisionStore.getState().clearForTests();
+    mocks.authFiles = [makeCodexFile('1', 'codex.json')];
+    mocks.nextAuthFiles = null;
+    mocks.lastFiltersPanelProps = null;
+    mocks.lastMonitoringDataParams = null;
+    // the account detail "open monitoring" link
+    mocks.locationSearch = '?auth_file=antigravity-b%40gmail.com.json&auth_index=bbbb2222bbbb2222';
+    mocks.refreshMeta.mockReset().mockImplementation(() => ({
+      authFiles: mocks.authFiles,
+      authFilesLoaded: true as const,
+      channels: [] as const,
+      channelsLoaded: true as const,
+      error: '',
+    }));
+    mocks.requestAccountQuota.mockReset();
+  });
+
+  afterEach(() => {
+    mocks.locationSearch = '';
+    act(() => {
+      renderer.unmount();
+    });
+  });
+
+  it('shows the linked credential in the account selector and drops it when the account changes', async () => {
+    await mount();
+    expect(panel().selectedAccount).toBe('auth:bbbb2222bbbb2222');
+    expect(scope().authFile).toBe('antigravity-b@gmail.com.json');
+    expect(scope().authIndex).toBe('bbbb2222bbbb2222');
+
+    await act(async () => {
+      panel().onAccountFilterChange('all');
+    });
+    expect(panel().selectedAccount).toBe('all');
+    expect(scope().authFile).toBeUndefined();
+    expect(scope().authIndex).toBeUndefined();
+  });
+
+  it('drops the linked credential when the provider changes', async () => {
+    await mount();
+    expect(scope().authIndex).toBe('bbbb2222bbbb2222');
+
+    await act(async () => {
+      panel().onProviderChange('codex');
+    });
+    expect(scope().authFile).toBeUndefined();
+    expect(scope().authIndex).toBeUndefined();
   });
 });
