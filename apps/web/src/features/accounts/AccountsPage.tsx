@@ -189,7 +189,6 @@ import {
   buildAntigravityQuotaMatrix,
   formatCompactNumber,
   formatHistorySuccessRate,
-  formatMoney,
   formatPercent,
   formatQuotaResetDisplay,
   formatQuotaResetTimestamp,
@@ -309,6 +308,7 @@ import {
 import { useUsageHeaderSnapshotStore } from '@/stores/useUsageHeaderSnapshotStore';
 import { normalizeAuthIndex } from '@/utils/authIndex';
 import { copyToClipboard } from '@/utils/clipboard';
+import { formatCostPair } from '@/utils/usage';
 import {
   buildUsageHeaderSnapshotLookup,
   getHeaderSnapshotErrorCode,
@@ -6942,9 +6942,10 @@ export function AccountsPage() {
               ? formatCompactNumber(accountHistory.total_tokens)
               : '-';
             const accountHistoryCostValue = accountHistoryMatched
-              ? accountHistory.total_cost >= 1000
-                ? `$${formatCompactNumber(accountHistory.total_cost)}`
-                : formatMoney(accountHistory.total_cost)
+              ? formatCostPair({
+                  usd: accountHistory.total_cost,
+                  cny: accountHistory.total_cost_cny,
+                })
               : '-';
             const accountHistorySuccessValue = accountHistoryMatched
               ? formatHistorySuccessRate(accountHistory.success_rate)

@@ -313,7 +313,6 @@ export function useMonitoringData({
   usage,
   config,
   connectionScopeKey,
-  modelPrices,
   apiKeyAliases,
   timeRange,
   customTimeRange,
@@ -686,7 +685,6 @@ export function useMonitoringData({
       authFileMap,
       sourceInfoMap,
       channelByAuthIndex,
-      modelPrices,
       apiKeyDisplayMap
     ).sort((left, right) => right.timestampMs - left.timestampMs);
   }, [
@@ -696,7 +694,6 @@ export function useMonitoringData({
     channelByAuthIndex,
     analyticsData,
     displayEventItems,
-    modelPrices,
     sourceInfoMap,
     usage,
   ]);

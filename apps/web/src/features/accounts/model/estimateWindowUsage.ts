@@ -1,7 +1,10 @@
 export interface WindowUsageForecastMetrics {
   requests: number;
   tokens: number;
+  /** USD estimate from the default price book. */
   cost: number;
+  /** CNY real spend from provider rules; kept separate from `cost`, never merged. */
+  costCny?: number;
 }
 
 export interface WindowUsageForecast extends WindowUsageForecastMetrics {
@@ -45,6 +48,10 @@ export const estimateWindowUsage = (input: {
       requests: Math.max(input.current.requests, Math.round(input.current.requests * multiplier)),
       tokens: Math.max(input.current.tokens, Math.round(input.current.tokens * multiplier)),
       cost: Math.max(input.current.cost, roundForecastCost(input.current.cost * multiplier)),
+      costCny:
+        typeof input.current.costCny === 'number' && Number.isFinite(input.current.costCny)
+          ? Math.max(input.current.costCny, roundForecastCost(input.current.costCny * multiplier))
+          : undefined,
       basis: 'quota',
     } satisfies WindowUsageForecast;
     if (

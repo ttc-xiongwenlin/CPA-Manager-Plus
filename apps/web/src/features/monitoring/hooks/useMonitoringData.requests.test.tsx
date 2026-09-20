@@ -25,7 +25,6 @@ import type { MonitoringMetaPayload } from '../model/types';
 
 const refresh = vi.fn(async () => undefined);
 const lastRefreshedAt = new Date(1_800_000_000_000);
-const modelPrices = {};
 const scopeFilters = { model: 'gpt-active' };
 const summary = {
   total_calls: 2,
@@ -254,7 +253,6 @@ describe('useMonitoringData analytics requests', () => {
     const result = useMonitoringData({
       config: null,
       connectionScopeKey,
-      modelPrices,
       timeRange: 'today',
       searchQuery: '',
       scopeFilters,

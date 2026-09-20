@@ -3,6 +3,7 @@ import {
   computeCacheHitRate,
   computeRowCacheHitRate,
   formatMetricValue,
+  formatRowCost,
   getUsageCacheTokens,
   USAGE_MODEL_LONG_TAIL_SHARE,
   USAGE_MODEL_TOP_SHARE_THRESHOLD,
@@ -150,6 +151,12 @@ const getMaxTimelineMs = (
     return current === null || value > current ? value : current;
   }, null);
 
+// Calls that matched no price rule are surfaced next to the cost meta line.
+const withUnpricedHint = (summary: UsageSummaryMetrics, base: string, t: TFunction) =>
+  (summary.unpricedCalls ?? 0) > 0
+    ? `${base} · ${t('common.unpriced_calls_hint', { count: summary.unpricedCalls })}`
+    : base;
+
 const deltaMeta = (
   summaryDelta: UsageSummaryDelta,
   key: 'estimatedCost' | 'requestCount' | 'totalTokens',
@@ -238,8 +245,12 @@ export const buildUsageOverviewSummaryCards = ({
       fullLabel: t('usage_analytics.metric_estimated_cost'),
       icon: 'cost',
       label: t('usage_analytics.metric_estimated_cost'),
-      meta: deltaMeta(summaryDelta, 'estimatedCost', t, t('usage_analytics.summary_cost_meta')),
-      value: formatMetricValue('estimatedCost', summary.estimatedCost),
+      meta: withUnpricedHint(
+        summary,
+        deltaMeta(summaryDelta, 'estimatedCost', t, t('usage_analytics.summary_cost_meta')),
+        t
+      ),
+      value: formatRowCost(summary),
     },
     {
       accent: 'teal',
@@ -401,8 +412,8 @@ export const buildUsageEntitySummaryCards = ({
     accent: 'amber',
     icon: 'cost',
     label: t('usage_analytics.metric_estimated_cost'),
-    meta: t('usage_analytics.summary_cost_meta'),
-    value: formatMetricValue('estimatedCost', summary.estimatedCost),
+    meta: withUnpricedHint(summary, t('usage_analytics.summary_cost_meta'), t),
+    value: formatRowCost(summary),
   },
   {
     accent: anomalyCount === undefined ? 'amber' : 'red',
@@ -481,8 +492,8 @@ export const buildUsageModelSummaryCards = ({
       accent: 'amber',
       icon: 'cost',
       label: t('usage_analytics.metric_estimated_cost'),
-      meta: t('usage_analytics.summary_cost_meta'),
-      value: formatMetricValue('estimatedCost', summary.estimatedCost),
+      meta: withUnpricedHint(summary, t('usage_analytics.summary_cost_meta'), t),
+      value: formatRowCost(summary),
     },
   ];
 };
@@ -580,8 +591,8 @@ export const buildUsageHeatmapSummaryCards = ({
     accent: 'amber',
     icon: 'cost',
     label: t('usage_analytics.metric_estimated_cost'),
-    meta: t('usage_analytics.summary_cost_meta'),
-    value: formatMetricValue('estimatedCost', summary.estimatedCost),
+    meta: withUnpricedHint(summary, t('usage_analytics.summary_cost_meta'), t),
+    value: formatRowCost(summary),
   },
   {
     accent: 'red',

@@ -51,7 +51,6 @@ describe('auth_file drilldown local filter', () => {
       new Map(),
       { byAuthIndex: new Map(), bySource: new Map(), byIdentityKey: new Map() },
       new Map(),
-      {},
       new Map()
     );
     expect(rows).toHaveLength(1);

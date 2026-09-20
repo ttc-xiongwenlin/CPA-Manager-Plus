@@ -17,7 +17,7 @@ import {
   formatCompactNumber,
   formatQuotaResetTimestamp,
 } from '@/features/accounts/model/accountsPagePresentation';
-import { formatUsd } from '@/utils/usage';
+import { formatCostPair } from '@/utils/usage';
 import { isCodexMainQuotaModelScope } from '@/utils/quota/codexQuota';
 import { QuotaWindowCard } from '../QuotaWindowCard';
 import styles from '@/features/accounts/AccountsPage.module.scss';
@@ -203,7 +203,14 @@ export function AccountQuotaTab({
             icon={<IconDollarSign size={20} />}
             tone="amber"
             label={t('accounts.detail_total_cost')}
-            value={history ? formatUsd(history.totalCost) : '-'}
+            value={
+              history ? formatCostPair({ usd: history.totalCost, cny: history.totalCostCny }) : '-'
+            }
+            valueTitle={
+              history && (history.unpricedCalls ?? 0) > 0
+                ? t('common.unpriced_calls_hint', { count: history.unpricedCalls })
+                : undefined
+            }
           />
           <MetricCell
             icon={<IconCheck size={20} />}

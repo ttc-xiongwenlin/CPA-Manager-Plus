@@ -20,6 +20,7 @@ import {
 } from '@/utils/quota/resolvers';
 import { isCodexMainQuotaWindow } from '@/utils/quota/codexQuota';
 import { sumRecentRequests, type RecentRequestBucket } from '@/utils/recentRequests';
+import { formatCostPair } from '@/utils/usage';
 import type { AccountRow } from './accountRows';
 import {
   buildAccountListItem,
@@ -118,6 +119,7 @@ export interface AccountDetailWindowUsageSummary {
   failureCalls: number;
   totalTokens: number;
   totalCost: number;
+  totalCostCny?: number;
   successRate: number | null;
   lastSeenMs: number | null;
   syncStatus: string;
@@ -198,6 +200,7 @@ export interface AccountDetailValueSummary {
   outputTokens: number;
   totalTokens: number;
   estimatedCost: number | null;
+  estimatedCostCny?: number;
   lastSeenMs: number | null;
   source: UsageValueSource;
 }
@@ -209,6 +212,8 @@ export interface AccountDetailHistorySummary {
   failureCalls: number;
   totalTokens: number;
   totalCost: number;
+  totalCostCny?: number;
+  unpricedCalls?: number;
   successRate: number | null;
   firstSeenMs: number | null;
   lastSeenMs: number | null;
@@ -568,6 +573,7 @@ const toWindowUsageSummary = (
     failureCalls: item.failure_calls,
     totalTokens: item.total_tokens,
     totalCost: item.total_cost,
+    totalCostCny: item.total_cost_cny,
     successRate: item.success_rate === null ? null : item.success_rate * 100,
     lastSeenMs: item.last_seen_ms,
     syncStatus: item.sync_status,
@@ -587,6 +593,8 @@ const toHistorySummary = (
     failureCalls: item.failure_calls,
     totalTokens: item.total_tokens,
     totalCost: item.total_cost,
+    totalCostCny: item.total_cost_cny,
+    unpricedCalls: item.unpriced_calls,
     successRate: item.success_rate === null ? null : item.success_rate * 100,
     firstSeenMs: item.first_seen_ms,
     lastSeenMs: item.last_seen_ms,
@@ -617,6 +625,7 @@ const buildValueSummary = (
     outputTokens,
     totalTokens,
     estimatedCost: monitoringValue?.estimatedCost ?? null,
+    estimatedCostCny: monitoringValue?.estimatedCostCny,
     lastSeenMs: monitoringValue?.lastSeenMs ?? null,
     source: monitoringValue ? 'monitoring' : 'recent',
   };
@@ -690,6 +699,7 @@ const buildQuotaWindows = (
             requests: currentUsage.totalRequests,
             tokens: currentUsage.totalTokens,
             cost: currentUsage.totalCost,
+            costCny: currentUsage.totalCostCny,
           }
         : null;
     const forecast =
@@ -709,6 +719,7 @@ const buildQuotaWindows = (
                     requests: previousUsage.totalRequests,
                     tokens: previousUsage.totalTokens,
                     cost: previousUsage.totalCost,
+                    costCny: previousUsage.totalCostCny,
                   }
                 : null,
           })
@@ -1194,7 +1205,12 @@ const buildOverviewActivity = (
           field('requests', 'accounts.value_requests', value.requests, 'number'),
           field('successRate', 'accounts.detail_success_rate', value.successRate, 'percent'),
           field('tokens', 'usage_analytics.trend_metric_totalTokens', value.totalTokens, 'number'),
-          field('cost', 'accounts.history_cost', value.estimatedCost, 'money'),
+          field(
+            'cost',
+            'accounts.history_cost',
+            formatCostPair({ usd: value.estimatedCost, cny: value.estimatedCostCny }),
+            'money'
+          ),
           field(
             'lastSeenMs',
             'accounts.detail_overview_activity_last_active',

@@ -8,7 +8,7 @@ import {
   formatQuotaResetTime,
   type QuotaResetTimeFormatOptions,
 } from '@/utils/quota/formatters';
-import { formatCompactNumber, formatUsd } from '@/utils/usage';
+import { formatCompactNumber, formatCostPair } from '@/utils/usage';
 import styles from '../MonitoringCenterPage.module.scss';
 
 const PREMIUM_CODEX_PLAN_TYPES = new Set(['pro', 'prolite', 'pro-lite', 'pro_lite']);
@@ -258,7 +258,7 @@ export const buildAccountSummaryMetrics = (
     key: 'estimated-cost',
     label: shortLabel(t, 'monitoring.estimated_cost_short', 'monitoring.estimated_cost'),
     fullLabel: t('monitoring.estimated_cost'),
-    value: hasPrices ? formatUsd(row.totalCost) : '--',
+    value: hasPrices ? formatCostPair({ usd: row.totalCost, cny: row.totalCostCny }) : '--',
   },
   {
     key: 'latest-request-time',

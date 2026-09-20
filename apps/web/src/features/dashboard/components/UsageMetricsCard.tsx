@@ -10,7 +10,7 @@ import {
 import { useThemeStore } from '@/stores';
 import type { DashboardSummaryResponse } from '@/services/api/usageService';
 import { getDataPalette } from '@/utils/dataPalette';
-import { formatCompactNumber, formatDurationMs, formatUsd } from '@/utils/usage';
+import { formatCompactNumber, formatCostPair, formatDurationMs } from '@/utils/usage';
 import styles from './UsageMetricsCard.module.scss';
 
 interface UsageMetricsCardProps {
@@ -119,9 +119,17 @@ export function UsageMetricsCard({
     },
     {
       label: t('dashboard.today_cost'),
-      value: today ? formatUsd(today.total_cost) : loadingText,
+      // USD (default price book) and CNY (provider rules) are separate; show whichever exists.
+      value: today ? formatCostPair({ usd: today.total_cost, cny: today.total_cost_cny }) : loadingText,
       subValue: today
-        ? t('dashboard.metric_total_tokens', { value: formatCompactNumber(today.total_tokens) })
+        ? [
+            t('dashboard.metric_total_tokens', { value: formatCompactNumber(today.total_tokens) }),
+            (today.unpriced_calls ?? 0) > 0
+              ? t('common.unpriced_calls_hint', { count: today.unpriced_calls })
+              : '',
+          ]
+            .filter(Boolean)
+            .join(' · ')
         : undefined,
       icon: <IconDollarSign size={20} />,
       color: dataPalette.amber,
@@ -170,9 +178,13 @@ export function UsageMetricsCard({
         <div className={styles.rankList}>
           {(modelCostRank?.length ? modelCostRank : topModels)?.slice(0, 5).map((model, index) => {
             const hasCostShare = 'cost_share' in model && typeof model.cost_share === 'number';
+            // Shares are per currency (never merged): fall back to the CNY share when the
+            // USD share is empty, e.g. when only provider (CNY) rules are configured.
             const share =
               hasCostShare
-                ? (model as { cost_share: number }).cost_share
+                ? (model as { cost_share: number }).cost_share ||
+                  (model as { cost_share_cny?: number }).cost_share_cny ||
+                  0
                 : topModels.length
                   ? model.tokens / Math.max(...topModels.map((item) => item.tokens), 1)
                   : 0;
@@ -186,7 +198,9 @@ export function UsageMetricsCard({
                 </div>
               </div>
               <div className={styles.rankValue}>
-                <div className={styles.cost}>{formatUsd(model.cost)}</div>
+                <div className={styles.cost}>
+                  {formatCostPair({ usd: model.cost, cny: model.cost_cny })}
+                </div>
                 <div className={styles.share}>
                   {hasCostShare
                     ? `${(share * 100).toFixed(1)}%`

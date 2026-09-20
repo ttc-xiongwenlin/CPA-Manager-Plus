@@ -1553,7 +1553,7 @@ describe('accountDetailViewModel', () => {
       expect.arrayContaining([
         expect.objectContaining({ key: 'requests', value: 7 }),
         expect.objectContaining({ key: 'tokens', value: 1200 }),
-        expect.objectContaining({ key: 'cost', value: 0.42 }),
+        expect.objectContaining({ key: 'cost', value: '$0.42' }),
         expect.objectContaining({
           key: 'lastSeenMs',
           labelKey: 'accounts.detail_overview_activity_last_active',

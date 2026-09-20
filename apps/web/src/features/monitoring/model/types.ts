@@ -2,7 +2,6 @@ import type { ApiKeyAlias } from '@/services/api/usageService';
 import type { ResponseHeaderMetadata } from '@/services/api/usageService';
 import type { AuthFileItem } from '@/types/authFile';
 import type { Config } from '@/types/config';
-import type { ModelPrice } from '@/utils/usage';
 import type { MonitoringDataTab } from '../monitoringCenterUiState';
 
 export type MonitoringChannelMeta = {
@@ -64,6 +63,7 @@ export type MonitoringModelShareRow = {
   requests: number;
   totalTokens: number;
   totalCost: number;
+  totalCostCny?: number;
   successRate: number;
 };
 
@@ -81,6 +81,7 @@ export type MonitoringChannelRow = {
   successRate: number;
   totalTokens: number;
   totalCost: number;
+  totalCostCny?: number;
   averageLatencyMs: number | null;
   authLabels: string[];
 };
@@ -92,6 +93,7 @@ export type MonitoringModelRow = {
   successRate: number;
   totalTokens: number;
   totalCost: number;
+  totalCostCny?: number;
   averageLatencyMs: number | null;
   sources: number;
   channels: number;
@@ -126,6 +128,7 @@ export type MonitoringTaskBucketRow = {
   cacheReadTokens: number;
   cacheCreationTokens: number;
   totalCost: number;
+  totalCostCny?: number;
   averageLatencyMs: number | null;
   maxLatencyMs: number | null;
   endpointsText: string;
@@ -195,6 +198,9 @@ export type MonitoringEventRow = {
   cacheCreationTokens: number;
   totalTokens: number;
   totalCost: number;
+  totalCostCny?: number;
+  /** Backend price_source: 'provider' | 'default' | 'none' | '' (not priced yet). */
+  priceSource?: string;
   reasoningEffort?: string;
   serviceTier?: string;
   requestServiceTier?: string;
@@ -227,6 +233,8 @@ export type MonitoringSummary = {
   cacheHitRate?: number;
   totalTokens: number;
   totalCost: number;
+  totalCostCny?: number;
+  unpricedCalls?: number;
   averageLatencyMs: number | null;
   rpm30m: number;
   tpm30m: number;
@@ -252,6 +260,7 @@ export type MonitoringAccountModelSpendRow = {
   cacheCreationTokens: number;
   totalTokens: number;
   totalCost: number;
+  totalCostCny?: number;
   lastSeenAt: number;
 };
 
@@ -277,6 +286,7 @@ export type MonitoringAccountRow = {
   cacheCreationTokens: number;
   totalTokens: number;
   totalCost: number;
+  totalCostCny?: number;
   averageLatencyMs: number | null;
   lastSeenAt: number;
   recentPattern: boolean[];
@@ -306,6 +316,7 @@ export type MonitoringApiKeyRow = {
   cacheCreationTokens: number;
   totalTokens: number;
   totalCost: number;
+  totalCostCny?: number;
   averageLatencyMs: number | null;
   lastSeenAt: number;
   models: MonitoringApiKeyModelSpendRow[];
@@ -346,6 +357,7 @@ export type MonitoringRealtimeRow = {
   cacheCreationTokens: number;
   totalTokens: number;
   totalCost: number;
+  totalCostCny?: number;
   lastSeenAt: number;
   recentPattern: boolean[];
 };
@@ -382,7 +394,6 @@ export interface UseMonitoringDataParams {
   usage?: unknown;
   config: Config | null | undefined;
   connectionScopeKey?: string | null;
-  modelPrices: Record<string, ModelPrice>;
   apiKeyAliases?: ApiKeyAlias[];
   timeRange: MonitoringTimeRange;
   customTimeRange?: MonitoringCustomTimeRange | null;

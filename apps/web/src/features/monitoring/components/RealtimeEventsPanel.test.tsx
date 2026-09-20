@@ -374,9 +374,32 @@ describe('RealtimeEventsPanel', () => {
   });
 
   it('keeps realtime request estimated cost at three decimal places', () => {
-    const markup = renderPanel(baseRow({ totalCost: 0.1264 }), { hasPrices: true });
+    const markup = renderPanel(baseRow({ totalCost: 0.1264, priceSource: 'default' }), {
+      hasPrices: true,
+    });
 
     expect(markup).toContain('$0.126');
+  });
+
+  it('shows stored CNY and USD cost side by side without merging them', () => {
+    const markup = renderPanel(
+      baseRow({ totalCost: 0.1264, totalCostCny: 0.5, priceSource: 'provider' }),
+      { hasPrices: true }
+    );
+
+    expect(markup).toContain('¥0.500 · $0.126');
+  });
+
+  it('shows a placeholder when the event matched no price rule or is not priced yet', () => {
+    const unpriced = renderPanel(baseRow({ totalCost: 0.1264, priceSource: 'none' }), {
+      hasPrices: true,
+    });
+    const pending = renderPanel(baseRow({ totalCost: 0.1264, priceSource: '' }), {
+      hasPrices: true,
+    });
+
+    expect(unpriced).not.toContain('$0.126');
+    expect(pending).not.toContain('$0.126');
   });
 
   it('renders API key alias inside the source cell without adding another column', () => {

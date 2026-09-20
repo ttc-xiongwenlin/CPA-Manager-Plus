@@ -1,14 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { buildRealtimeSourceDisplay } from '@/features/monitoring/realtimeSourceDisplay';
 import type { MonitoringAuthMeta } from './types';
-import type { ModelPrice, UsageDetailWithEndpoint } from '@/utils/usage';
+import type { UsageDetailWithEndpoint } from '@/utils/usage';
 import { buildSourceInfoMap } from '@/utils/sourceResolver';
 import { buildEventRows } from './eventRows';
 
-const buildRows = (
-  overrides: Partial<UsageDetailWithEndpoint> = {},
-  modelPrices: Record<string, ModelPrice> = {}
-) =>
+const buildRows = (overrides: Partial<UsageDetailWithEndpoint> = {}) =>
   buildEventRows(
     [
       {
@@ -35,7 +32,6 @@ const buildRows = (
     new Map(),
     { byAuthIndex: new Map(), bySource: new Map(), byIdentityKey: new Map() },
     new Map(),
-    modelPrices,
     new Map()
   );
 
@@ -100,7 +96,6 @@ describe('buildEventRows', () => {
       new Map(),
       { byAuthIndex: new Map(), bySource: new Map(), byIdentityKey: new Map() },
       new Map(),
-      {},
       new Map()
     );
 
@@ -147,21 +142,30 @@ describe('buildEventRows', () => {
   });
 
   it('derives missing total from normalized input without adding cache twice', () => {
-    const [row] = buildRows(
-      {
-        tokens: {
-          input_tokens: 100,
-          output_tokens: 20,
-          cache_read_tokens: 40,
-        },
+    const [row] = buildRows({
+      tokens: {
+        input_tokens: 100,
+        output_tokens: 20,
+        cache_read_tokens: 40,
       },
-      {
-        'gpt-5.4': { prompt: 1, completion: 2, cache: 0.1, cacheRead: 0.1 },
-      }
-    );
+    });
 
     expect(row.totalTokens).toBe(120);
-    expect(row.totalCost).toBeCloseTo(0.000104);
+  });
+
+  it('reads stored per-event cost instead of pricing on the client', () => {
+    const [priced] = buildRows({ cost_usd: 0.25, cost_cny: 1.5, price_source: 'provider' });
+    const [unpriced] = buildRows({ price_source: 'none' });
+    const [legacy] = buildRows({});
+
+    expect(priced.totalCost).toBe(0.25);
+    expect(priced.totalCostCny).toBe(1.5);
+    expect(priced.priceSource).toBe('provider');
+    expect(unpriced.totalCost).toBe(0);
+    expect(unpriced.totalCostCny).toBe(0);
+    expect(unpriced.priceSource).toBe('none');
+    expect(legacy.totalCost).toBe(0);
+    expect(legacy.priceSource).toBe('');
   });
 
   it('keeps CPA executor and service tier metadata searchable', () => {
@@ -321,7 +325,6 @@ describe('buildEventRows', () => {
       new Map(),
       sourceInfoMap,
       new Map(),
-      {},
       new Map()
     );
 
@@ -407,7 +410,6 @@ describe('buildEventRows', () => {
       new Map(),
       sourceInfoMap,
       channelByAuthIndex,
-      {},
       new Map()
     );
 

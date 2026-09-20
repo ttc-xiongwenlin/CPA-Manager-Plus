@@ -20,6 +20,7 @@ export interface UsageValueRow {
   outputTokens: number;
   totalTokens?: number;
   estimatedCost: number;
+  estimatedCostCny?: number;
   lastSeenMs: number | null;
   rating: 'high' | 'normal' | 'low';
   source: UsageValueSource;
@@ -96,6 +97,7 @@ const buildMonitoringUsageValueRow = ({
   outputTokens,
   totalTokens,
   estimatedCost,
+  estimatedCostCny,
   lastSeenMs,
 }: {
   row: AccountRow;
@@ -105,6 +107,7 @@ const buildMonitoringUsageValueRow = ({
   outputTokens: number;
   totalTokens: number;
   estimatedCost: number;
+  estimatedCostCny?: number;
   lastSeenMs: number | null;
 }): UsageValueRow => ({
   key: `monitoring:${row.selectionKey}`,
@@ -117,6 +120,7 @@ const buildMonitoringUsageValueRow = ({
   outputTokens,
   totalTokens,
   estimatedCost,
+  estimatedCostCny,
   lastSeenMs,
   rating: resolveRating(requests, successRate, estimatedCost),
   source: 'monitoring',
@@ -141,6 +145,7 @@ export const buildUsageValueRowFromMonitoringSummary = (
       outputTokens: finiteNumberOrZero(summary.output_tokens),
       totalTokens: finiteNumberOrZero(summary.total_tokens),
       estimatedCost: finiteNumberOrZero(summary.total_cost),
+      estimatedCostCny: finiteNumberOrZero(summary.total_cost_cny),
       lastSeenMs,
     });
   }
@@ -159,6 +164,7 @@ export const buildUsageValueRowFromMonitoringSummary = (
           ? stat.total_tokens
           : finiteNumberOrZero(stat.input_tokens) + finiteNumberOrZero(stat.output_tokens);
       totals.estimatedCost += finiteNumberOrZero(stat.cost);
+      totals.estimatedCostCny += finiteNumberOrZero(stat.cost_cny);
       return totals;
     },
     {
@@ -168,6 +174,7 @@ export const buildUsageValueRowFromMonitoringSummary = (
       outputTokens: 0,
       totalTokens: 0,
       estimatedCost: 0,
+      estimatedCostCny: 0,
     }
   );
   const successRate =
@@ -211,6 +218,7 @@ export const buildUsageValueRowsFromMonitoring = (
       outputTokens: stat.output_tokens,
       totalTokens: stat.total_tokens,
       estimatedCost: stat.cost,
+      estimatedCostCny: stat.cost_cny,
       lastSeenMs: stat.last_seen_ms || null,
       rating: resolveRating(requests, successRate, stat.cost),
       source: 'monitoring',

@@ -30,6 +30,7 @@ import {
   calculateCacheHitRate,
   calculateCacheHitRateFromTotals,
   formatCompactNumber,
+  formatCostPair,
   formatUsd,
   getCacheHitTotals,
   normalizeAnalyticsModel,
@@ -116,6 +117,7 @@ export type UsageTimelinePoint = {
   cacheCreationTokens: number;
   reasoningTokens: number;
   estimatedCost: number;
+  estimatedCostCny?: number;
   successCount: number;
   failureCount: number;
   successRate: number;
@@ -140,6 +142,9 @@ export type UsageSummaryMetrics = {
   cacheCreationTokens: number;
   cacheHitRate?: number;
   estimatedCost: number;
+  // CNY real spend from provider rules (separate from the USD estimate, never merged).
+  estimatedCostCny?: number;
+  unpricedCalls?: number;
   averageCostPerCall: number;
   successRate: number;
   failureCount: number;
@@ -171,6 +176,7 @@ export type UsageApiKeyContextRow = {
   failureRate: number;
   totalTokens: number;
   estimatedCost: number;
+  estimatedCostCny?: number;
   averageLatencyMs: number | null;
   lastSeenMs?: number;
 };
@@ -202,6 +208,7 @@ export type UsageRankRow = {
   cacheHitInputTokens?: number;
   cacheHitRate?: number;
   estimatedCost: number;
+  estimatedCostCny?: number;
   averageLatencyMs: number | null;
   lastSeenMs?: number;
   share: number;
@@ -219,6 +226,7 @@ export type UsageProviderRow = {
   cacheRate: number;
   totalTokens: number;
   estimatedCost: number;
+  estimatedCostCny?: number;
   averageLatencyMs: number | null;
   requestShare: number;
   costShare: number;
@@ -415,6 +423,7 @@ export type UsageServerAnomaly = {
   requestCount: number;
   totalTokens: number;
   estimatedCost: number;
+  estimatedCostCny?: number;
   failureRate: number;
   requestChange: number;
   costChange: number;
@@ -856,6 +865,8 @@ export const buildUsageSummary = (
       : undefined,
   estimatedCost: toNumber(summary?.total_cost),
   averageCostPerCall: toNumber(summary?.average_cost_per_call),
+  estimatedCostCny: toOptionalCny(summary?.total_cost_cny),
+  unpricedCalls: toOptionalCny(summary?.unpriced_calls),
   successRate: toNumber(summary?.success_rate),
   failureCount: toNumber(summary?.failure_calls),
   averageLatencyMs: toNullableNumber(summary?.average_latency_ms),
@@ -946,6 +957,7 @@ export const buildUsageTimeline = (
       cacheCreationTokens: toNumber(point.cache_creation_tokens),
       reasoningTokens: toNumber(point.reasoning_tokens),
       estimatedCost: toNumber(point.cost),
+      estimatedCostCny: toOptionalCny(point.cost_cny),
       successCount,
       failureCount,
       successRate:
@@ -1003,6 +1015,14 @@ export const buildUsageApiKeyTimeline = (
   });
 
 const rowTotalCost = (row: { cost?: number }) => toNumber(row.cost);
+
+// CNY real spend reported by provider rules. Left undefined when the backend did not
+// report it so USD-only rows (and older servers) keep their exact shape.
+const toOptionalCny = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+
+const sumOptionalCny = (left?: number, right?: number): number | undefined =>
+  left === undefined && right === undefined ? undefined : (left ?? 0) + (right ?? 0);
 
 const usageRankMetricValue = (row: UsageRankRow, metric: UsageTrendMetricKey) => {
   if (metric === 'estimatedCost') return row.estimatedCost;
@@ -1283,6 +1303,7 @@ export const buildModelRows = (
       cacheHitInputTokens: row.cache_hit_input_tokens,
       cacheHitRate: row.cache_hit_rate,
       estimatedCost: rowTotalCost(row),
+      estimatedCostCny: toOptionalCny(row.cost_cny),
       averageLatencyMs: null,
       share:
         totalCost > 0
@@ -1436,6 +1457,7 @@ const buildModelSpendRows = (
     cacheHitInputTokens: row.cache_hit_input_tokens,
     cacheHitRate: row.cache_hit_rate,
     estimatedCost: rowTotalCost(row),
+    estimatedCostCny: toOptionalCny(row.cost_cny),
     averageLatencyMs: null,
     lastSeenMs: row.last_seen_ms,
     share: 0,
@@ -1461,6 +1483,7 @@ const buildApiKeyContextRows = (
         : toNumber(row.failure_rate),
     totalTokens: toNumber(row.total_tokens),
     estimatedCost: toNumber(row.cost),
+    estimatedCostCny: toOptionalCny(row.cost_cny),
     averageLatencyMs: row.average_latency_ms ?? null,
     lastSeenMs: row.last_seen_ms,
   }));
@@ -1508,6 +1531,7 @@ export const buildApiKeyRows = (
         cacheReadTokens: toNumber(row.cache_read_tokens),
         cacheCreationTokens: toNumber(row.cache_creation_tokens),
         estimatedCost: rowTotalCost(row),
+        estimatedCostCny: toOptionalCny(row.cost_cny),
         averageLatencyMs: row.average_latency_ms ?? null,
         lastSeenMs: row.last_seen_ms,
         share:
@@ -1561,6 +1585,7 @@ export const buildCredentialRows = (
         cacheReadTokens: toNumber(row.cache_read_tokens),
         cacheCreationTokens: toNumber(row.cache_creation_tokens),
         estimatedCost: rowTotalCost(row),
+        estimatedCostCny: toOptionalCny(row.cost_cny),
         averageLatencyMs: row.average_latency_ms ?? null,
         lastSeenMs: row.last_seen_ms,
         share:
@@ -1619,6 +1644,7 @@ const buildProviderModelsFromEntities = (
         existing.cacheHitInputTokens
       );
       existing.estimatedCost += model.estimatedCost;
+      existing.estimatedCostCny = sumOptionalCny(existing.estimatedCostCny, model.estimatedCostCny);
       existing.lastSeenMs = Math.max(existing.lastSeenMs ?? 0, model.lastSeenMs ?? 0);
     });
   });
@@ -1663,6 +1689,7 @@ export const buildProviderRows = (
     current.failureCount += toNumber(row.failure);
     current.totalTokens += toNumber(row.tokens);
     current.estimatedCost += rowTotalCost(row);
+    current.estimatedCostCny = sumOptionalCny(current.estimatedCostCny, toOptionalCny(row.cost_cny));
     if (row.average_latency_ms !== null && row.average_latency_ms !== undefined) {
       current.averageLatencyMs =
         current.averageLatencyMs === null
@@ -1699,6 +1726,7 @@ export const buildProviderRows = (
       current.failureCount += row.failureCount;
       current.totalTokens += row.totalTokens;
       current.estimatedCost += row.estimatedCost;
+      current.estimatedCostCny = sumOptionalCny(current.estimatedCostCny, row.estimatedCostCny);
       fallbackRows.set(label, [...(fallbackRows.get(label) ?? []), row]);
       grouped.set(label, current);
     });
@@ -2346,6 +2374,7 @@ export const buildServerAnomalyPoints = (
     requestCount: toNumber(point.calls),
     totalTokens: toNumber(point.total_tokens),
     estimatedCost: toNumber(point.cost),
+    estimatedCostCny: toOptionalCny(point.cost_cny),
     failureRate: toNumber(point.failure_rate),
     requestChange: toNumber(point.request_change),
     costChange: toNumber(point.cost_change),
@@ -2756,10 +2785,16 @@ export const buildOptionValues = (values: Array<string | undefined | null>) =>
     (left, right) => left.localeCompare(right)
   );
 
+// `formatMetricValue('estimatedCost')` stays USD-only: it formats a single number and is
+// used by charts/axes that plot the USD series. Rows/summaries that carry both currencies
+// render through formatRowCost so CNY is never labelled with `$`.
 export const formatMetricValue = (key: UsageMetricKey, value: number) => {
   if (key === 'estimatedCost') return formatUsd(value);
   return formatCompactNumber(value);
 };
+
+export const formatRowCost = (row: { estimatedCost: number; estimatedCostCny?: number }) =>
+  formatCostPair({ usd: row.estimatedCost, cny: row.estimatedCostCny });
 
 export const formatHeatmapMetricValue = (key: UsageHeatmapMetricKey, value: number) => {
   if (key === 'failureRate') return `${((Number.isFinite(value) ? value : 0) * 100).toFixed(1)}%`;

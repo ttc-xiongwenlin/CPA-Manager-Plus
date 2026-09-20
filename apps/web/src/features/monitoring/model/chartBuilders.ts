@@ -120,7 +120,14 @@ export const buildStatusChips = (metadata: MonitoringMetadata): MonitoringStatus
 export const buildModelShareRows = (rows: MonitoringEventRow[]): MonitoringModelShareRow[] => {
   const grouped = new Map<
     string,
-    { model: string; requests: number; failures: number; totalTokens: number; totalCost: number }
+    {
+      model: string;
+      requests: number;
+      failures: number;
+      totalTokens: number;
+      totalCost: number;
+      totalCostCny: number;
+    }
   >();
 
   rows.forEach((row) => {
@@ -130,11 +137,13 @@ export const buildModelShareRows = (rows: MonitoringEventRow[]): MonitoringModel
       failures: 0,
       totalTokens: 0,
       totalCost: 0,
+      totalCostCny: 0,
     };
     existing.requests += 1;
     existing.failures += row.failed ? 1 : 0;
     existing.totalTokens += row.totalTokens;
     existing.totalCost += row.totalCost;
+    existing.totalCostCny += row.totalCostCny ?? 0;
     grouped.set(row.model, existing);
   });
 
@@ -144,6 +153,7 @@ export const buildModelShareRows = (rows: MonitoringEventRow[]): MonitoringModel
       requests: item.requests,
       totalTokens: item.totalTokens,
       totalCost: item.totalCost,
+      totalCostCny: item.totalCostCny,
       successRate: item.requests > 0 ? (item.requests - item.failures) / item.requests : 1,
     }))
     .sort((left, right) => right.requests - left.requests);
@@ -165,6 +175,7 @@ export const buildChannelRows = (rows: MonitoringEventRow[]): MonitoringChannelR
       failures: number;
       totalTokens: number;
       totalCost: number;
+      totalCostCny: number;
       latencySum: number;
       latencyCount: number;
     }
@@ -185,6 +196,7 @@ export const buildChannelRows = (rows: MonitoringEventRow[]): MonitoringChannelR
       failures: 0,
       totalTokens: 0,
       totalCost: 0,
+      totalCostCny: 0,
       latencySum: 0,
       latencyCount: 0,
     };
@@ -198,6 +210,7 @@ export const buildChannelRows = (rows: MonitoringEventRow[]): MonitoringChannelR
     existing.failures += row.failed ? 1 : 0;
     existing.totalTokens += row.totalTokens;
     existing.totalCost += row.totalCost;
+    existing.totalCostCny += row.totalCostCny ?? 0;
     if (row.latencyMs !== null) {
       existing.latencySum += row.latencyMs;
       existing.latencyCount += 1;
@@ -220,6 +233,7 @@ export const buildChannelRows = (rows: MonitoringEventRow[]): MonitoringChannelR
       successRate: item.requests > 0 ? (item.requests - item.failures) / item.requests : 1,
       totalTokens: item.totalTokens,
       totalCost: item.totalCost,
+      totalCostCny: item.totalCostCny,
       averageLatencyMs: item.latencyCount > 0 ? item.latencySum / item.latencyCount : null,
       authLabels: Array.from(item.authLabels).sort(),
     }))
@@ -235,6 +249,7 @@ export const buildModelRows = (rows: MonitoringEventRow[]): MonitoringModelRow[]
       failures: number;
       totalTokens: number;
       totalCost: number;
+      totalCostCny: number;
       latencySum: number;
       latencyCount: number;
       sources: Set<string>;
@@ -249,6 +264,7 @@ export const buildModelRows = (rows: MonitoringEventRow[]): MonitoringModelRow[]
       failures: 0,
       totalTokens: 0,
       totalCost: 0,
+      totalCostCny: 0,
       latencySum: 0,
       latencyCount: 0,
       sources: new Set<string>(),
@@ -259,6 +275,7 @@ export const buildModelRows = (rows: MonitoringEventRow[]): MonitoringModelRow[]
     existing.failures += row.failed ? 1 : 0;
     existing.totalTokens += row.totalTokens;
     existing.totalCost += row.totalCost;
+    existing.totalCostCny += row.totalCostCny ?? 0;
     existing.sources.add(row.source);
     existing.channels.add(row.channel);
     if (row.latencyMs !== null) {
@@ -277,6 +294,7 @@ export const buildModelRows = (rows: MonitoringEventRow[]): MonitoringModelRow[]
       successRate: item.requests > 0 ? (item.requests - item.failures) / item.requests : 1,
       totalTokens: item.totalTokens,
       totalCost: item.totalCost,
+      totalCostCny: item.totalCostCny,
       averageLatencyMs: item.latencyCount > 0 ? item.latencySum / item.latencyCount : null,
       sources: item.sources.size,
       channels: item.channels.size,
@@ -363,6 +381,7 @@ export const buildTaskBuckets = (rows: MonitoringEventRow[]): MonitoringTaskBuck
       cacheReadTokens: number;
       cacheCreationTokens: number;
       totalCost: number;
+      totalCostCny: number;
       latencySum: number;
       latencyCount: number;
       maxLatencyMs: number | null;
@@ -388,6 +407,7 @@ export const buildTaskBuckets = (rows: MonitoringEventRow[]): MonitoringTaskBuck
       cacheReadTokens: 0,
       cacheCreationTokens: 0,
       totalCost: 0,
+      totalCostCny: 0,
       latencySum: 0,
       latencyCount: 0,
       maxLatencyMs: null,
@@ -402,6 +422,7 @@ export const buildTaskBuckets = (rows: MonitoringEventRow[]): MonitoringTaskBuck
     existing.cacheReadTokens += row.cacheReadTokens;
     existing.cacheCreationTokens += row.cacheCreationTokens;
     existing.totalCost += row.totalCost;
+    existing.totalCostCny += row.totalCostCny ?? 0;
     if (row.latencyMs !== null) {
       existing.latencySum += row.latencyMs;
       existing.latencyCount += 1;
@@ -430,6 +451,7 @@ export const buildTaskBuckets = (rows: MonitoringEventRow[]): MonitoringTaskBuck
       cacheReadTokens: item.cacheReadTokens,
       cacheCreationTokens: item.cacheCreationTokens,
       totalCost: item.totalCost,
+      totalCostCny: item.totalCostCny,
       averageLatencyMs: item.latencyCount > 0 ? item.latencySum / item.latencyCount : null,
       maxLatencyMs: item.maxLatencyMs,
       endpointsText: joinUnique(item.endpoints, 2),

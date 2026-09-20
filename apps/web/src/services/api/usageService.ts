@@ -601,6 +601,8 @@ export interface DashboardTodaySummary {
   reasoning_tokens: number;
   total_tokens: number;
   total_cost: number;
+  total_cost_cny?: number;
+  unpriced_calls?: number;
   average_latency_ms: number | null;
   zero_token_calls: number;
 }
@@ -617,6 +619,7 @@ export interface DashboardTopModel {
   calls: number;
   tokens: number;
   cost: number;
+  cost_cny?: number;
   success_rate: number;
 }
 
@@ -674,8 +677,10 @@ export interface DashboardModelCostRank {
   calls: number;
   tokens: number;
   cost: number;
+  cost_cny?: number;
   success_rate: number;
   cost_share: number;
+  cost_share_cny?: number;
 }
 
 export interface DashboardChannelHealth {
@@ -693,6 +698,7 @@ export interface DashboardChannelHealth {
   success_rate: number;
   tokens: number;
   cost: number;
+  cost_cny?: number;
   average_latency_ms: number | null;
   tone: 'good' | 'warn' | 'bad' | string;
 }
@@ -886,6 +892,8 @@ export interface MonitoringAccountHistoryItem {
   failure_calls: number;
   total_tokens: number;
   total_cost: number;
+  total_cost_cny?: number;
+  unpriced_calls?: number;
   success_rate: number | null;
   first_seen_ms: number | null;
   last_seen_ms: number | null;
@@ -944,6 +952,8 @@ export interface MonitoringAccountWindowUsageItem {
   failure_calls: number;
   total_tokens: number;
   total_cost: number;
+  total_cost_cny?: number;
+  unpriced_calls?: number;
   success_rate: number | null;
   last_seen_ms: number | null;
   sync_status: 'ready' | 'empty' | string;
@@ -1267,6 +1277,8 @@ export interface MonitoringAnalyticsSummary {
   reasoning_tokens: number;
   total_tokens: number;
   total_cost: number;
+  total_cost_cny?: number;
+  unpriced_calls?: number;
   average_cost_per_call?: number;
   average_latency_ms: number | null;
   p95_latency_ms?: number | null;
@@ -1291,6 +1303,7 @@ export interface MonitoringAnalyticsSummaryComparison {
   success_rate: number;
   total_tokens: number;
   total_cost: number;
+  total_cost_cny?: number;
 }
 
 export interface MonitoringAnalyticsBusinessOutcomePoint {
@@ -1331,6 +1344,7 @@ export interface MonitoringAnalyticsTimelinePoint {
   reasoning_tokens?: number;
   total_tokens?: number;
   cost?: number;
+  cost_cny?: number;
   average_latency_ms?: number | null;
   p95_latency_ms?: number | null;
   p95_ttft_ms?: number | null;
@@ -1352,6 +1366,7 @@ export interface MonitoringAnalyticsHeatmapContributor {
   failure: number;
   tokens: number;
   cost: number;
+  cost_cny?: number;
   failure_rate: number;
   share: number;
 }
@@ -1364,6 +1379,7 @@ export interface MonitoringAnalyticsHeatmapPoint {
   failure: number;
   tokens: number;
   cost: number;
+  cost_cny?: number;
   failure_rate: number;
   model_contributors?: MonitoringAnalyticsHeatmapContributor[];
   api_key_contributors?: MonitoringAnalyticsHeatmapContributor[];
@@ -1381,9 +1397,11 @@ export interface MonitoringAnalyticsAnomalyPoint {
   calls: number;
   total_tokens: number;
   cost: number;
+  cost_cny?: number;
   failure_rate: number;
   request_change: number;
   cost_change: number;
+  cost_change_cny?: number;
   tokens_per_request_change: number;
   cache_hit_rate_change: number;
   failure_rate_change: number;
@@ -1395,6 +1413,7 @@ export interface MonitoringAnalyticsModelShareRow {
   calls: number;
   tokens: number;
   cost: number;
+  cost_cny?: number;
 }
 
 export interface MonitoringAnalyticsModelStat {
@@ -1413,6 +1432,7 @@ export interface MonitoringAnalyticsModelStat {
   cache_hit_rate?: number;
   total_tokens: number;
   cost: number;
+  cost_cny?: number;
 }
 
 export interface MonitoringAnalyticsChannelShareRow {
@@ -1426,6 +1446,7 @@ export interface MonitoringAnalyticsChannelShareRow {
   failure: number;
   tokens: number;
   cost: number;
+  cost_cny?: number;
   average_latency_ms: number | null;
 }
 
@@ -1458,6 +1479,7 @@ export interface MonitoringAnalyticsAccountModelStatRow {
   cache_hit_rate?: number;
   total_tokens: number;
   cost: number;
+  cost_cny?: number;
   last_seen_ms: number;
 }
 
@@ -1480,6 +1502,7 @@ export interface MonitoringAnalyticsAccountStatRow {
   cache_creation_tokens: number;
   total_tokens: number;
   cost: number;
+  cost_cny?: number;
   average_latency_ms: number | null;
   last_seen_ms: number;
   models?: MonitoringAnalyticsAccountModelStatRow[];
@@ -1507,6 +1530,7 @@ export interface MonitoringAnalyticsCredentialStatRow {
   cache_creation_tokens: number;
   total_tokens: number;
   cost: number;
+  cost_cny?: number;
   average_latency_ms: number | null;
   last_seen_ms: number;
   models?: MonitoringAnalyticsAccountModelStatRow[];
@@ -1538,6 +1562,7 @@ export interface MonitoringAnalyticsCredentialTimelinePoint {
   reasoning_tokens?: number;
   total_tokens?: number;
   cost?: number;
+  cost_cny?: number;
   average_latency_ms?: number | null;
   success_rate?: number;
   failure_rate?: number;
@@ -1559,6 +1584,7 @@ export interface MonitoringAnalyticsApiKeyTimelinePoint {
   reasoning_tokens?: number;
   total_tokens?: number;
   cost?: number;
+  cost_cny?: number;
   average_latency_ms?: number | null;
   success_rate?: number;
   failure_rate?: number;
@@ -1584,6 +1610,7 @@ export interface MonitoringAnalyticsApiKeyStatRow {
   cache_creation_tokens: number;
   total_tokens: number;
   cost: number;
+  cost_cny?: number;
   average_latency_ms: number | null;
   last_seen_ms: number;
   models?: MonitoringAnalyticsAccountModelStatRow[];
@@ -1605,6 +1632,7 @@ export interface MonitoringAnalyticsApiKeyContextRow {
   failure_rate: number;
   total_tokens: number;
   cost: number;
+  cost_cny?: number;
   average_latency_ms?: number | null;
   last_seen_ms: number;
 }
@@ -1877,6 +1905,12 @@ export interface MonitoringAnalyticsEventRow {
   header_error_kind?: string;
   header_error_code?: string;
   header_trace_id?: string;
+  // Stored per-event cost (missing on older backends): USD estimate from the default
+  // model price book, CNY real spend from provider rules. Never converted or merged.
+  cost_usd?: number;
+  cost_cny?: number;
+  price_source?: 'provider' | 'default' | 'none' | '';
+  cost_multiplier?: number;
 }
 
 export interface MonitoringAnalyticsEventsResponse {
@@ -1913,7 +1947,7 @@ export interface MonitoringAnalyticsResponse {
   drilldown_preview?: MonitoringAnalyticsEventsResponse;
 }
 
-const USAGE_SERVICE_TIMEOUT_MS = 30 * 1000;
+export const USAGE_SERVICE_TIMEOUT_MS = 30 * 1000;
 const USAGE_SERVICE_TRANSFER_TIMEOUT_MS = 60 * 1000;
 const USAGE_IMPORT_CHUNK_TIMEOUT_MS = 5 * 60 * 1000;
 const CODEX_INSPECTION_RUN_TIMEOUT_MS = 10 * 60 * 1000;
@@ -1934,12 +1968,12 @@ export const isUsageServiceId = (service?: string): boolean =>
 
 export const normalizeUsageServiceBase = (input: string): string => normalizeApiBase(input);
 
-const buildUrl = (base: string, path: string): string => {
+export const buildUrl = (base: string, path: string): string => {
   const normalized = normalizeUsageServiceBase(base).replace(/\/+$/, '');
   return `${normalized}${path}`;
 };
 
-const authHeaders = (managementKey?: string) =>
+export const authHeaders = (managementKey?: string) =>
   managementKey ? { Authorization: `Bearer ${managementKey}` } : undefined;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -2006,7 +2040,7 @@ const toUsageServiceApiError = (error: unknown): UsageServiceApiError => {
   return fallback;
 };
 
-const withUsageServiceError = async <T>(operation: () => Promise<T>): Promise<T> => {
+export const withUsageServiceError = async <T>(operation: () => Promise<T>): Promise<T> => {
   try {
     return await operation();
   } catch (error) {

@@ -467,7 +467,6 @@ export function MonitoringCenterPage() {
   } = useMonitoringData({
     config,
     connectionScopeKey: connectionFingerprint,
-    modelPrices,
     apiKeyAliases,
     timeRange,
     customTimeRange,
@@ -724,7 +723,12 @@ export function MonitoringCenterPage() {
   const combinedError = monitoringUnavailable
     ? monitoringError
     : [usageError, monitoringError].filter(Boolean).join('；');
-  const hasPrices = Object.keys(modelPrices).length > 0;
+  // Costs are priced by the backend now: provider (CNY) rules can exist without any
+  // model price book entry, so treat any stored cost as "prices available".
+  const hasPrices =
+    Object.keys(modelPrices).length > 0 ||
+    monitoringSummary.totalCost > 0 ||
+    (monitoringSummary.totalCostCny ?? 0) > 0;
 
   useEffect(() => {
     accountQuotaStatesByRowIdRef.current = accountQuotaStatesByRowId;

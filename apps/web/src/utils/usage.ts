@@ -247,6 +247,11 @@ export interface UsageDetail {
   headerTraceId?: string;
   fail_body?: string;
   failBody?: string;
+  // Stored per-event cost from the backend (undefined on legacy payloads / older servers).
+  cost_usd?: number;
+  cost_cny?: number;
+  price_source?: string;
+  cost_multiplier?: number;
   __modelName?: string;
   __requestedModel?: string;
   __resolvedModel?: string;
@@ -267,7 +272,6 @@ export interface DurationFormatOptions {
   locale?: string;
 }
 
-const TOKENS_PER_PRICE_UNIT = 1_000_000;
 const MODEL_PRICE_STORAGE_KEY = 'cli-proxy-model-prices-v2';
 const USAGE_ENDPOINT_METHOD_REGEX = /^(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+(\S+)/i;
 const USAGE_SOURCE_PREFIX_KEY = 'k:';
@@ -335,102 +339,6 @@ const readDetailString = (value: unknown): string | undefined => {
 
 const readResponseHeaderMetadata = (value: unknown): UsageResponseHeaderMetadata | undefined =>
   isRecord(value) ? (value as UsageResponseHeaderMetadata) : undefined;
-
-const normalizedModelSlug = (modelName: string): string => {
-  const normalized = String(modelName ?? '')
-    .trim()
-    .toLowerCase();
-  const separator = normalized.lastIndexOf('/');
-  return separator >= 0 ? normalized.slice(separator + 1) : normalized;
-};
-
-const isModelFamily = (modelName: string, family: string): boolean => {
-  const slug = normalizedModelSlug(modelName);
-  return slug === family || slug.startsWith(`${family}-`);
-};
-
-const isGpt56Model = (modelName: string): boolean => isModelFamily(modelName, 'gpt-5.6');
-
-const supportsLongContextPremium = (modelName: string): boolean => {
-  const slug = normalizedModelSlug(modelName);
-  if (isGpt56Model(slug)) return true;
-  if (slug === 'gpt-5.5' || slug.startsWith('gpt-5.5-20')) return true;
-  return (
-    slug === 'gpt-5.4' ||
-    slug.startsWith('gpt-5.4-20') ||
-    slug === 'gpt-5.4-pro' ||
-    slug.startsWith('gpt-5.4-pro-20')
-  );
-};
-
-const isConfiguredPriceValue = (value: unknown, configured?: boolean): boolean => {
-  const parsed = Number(value);
-  return configured === true || (Number.isFinite(parsed) && parsed > 0);
-};
-
-const getOfficialGpt56Price = (modelName: string): ModelPrice | undefined => {
-  if (isModelFamily(modelName, 'gpt-5.6-sol')) {
-    return {
-      prompt: 5,
-      completion: 30,
-      cache: 0.5,
-      cacheRead: 0.5,
-      cacheCreation: 6.25,
-      promptConfigured: true,
-      completionConfigured: true,
-      cacheReadConfigured: true,
-      cacheCreationConfigured: true,
-    };
-  }
-  if (isModelFamily(modelName, 'gpt-5.6-terra')) {
-    return {
-      prompt: 2.5,
-      completion: 15,
-      cache: 0.25,
-      cacheRead: 0.25,
-      cacheCreation: 3.125,
-      promptConfigured: true,
-      completionConfigured: true,
-      cacheReadConfigured: true,
-      cacheCreationConfigured: true,
-    };
-  }
-  if (isModelFamily(modelName, 'gpt-5.6-luna')) {
-    return {
-      prompt: 1,
-      completion: 6,
-      cache: 0.1,
-      cacheRead: 0.1,
-      cacheCreation: 1.25,
-      promptConfigured: true,
-      completionConfigured: true,
-      cacheReadConfigured: true,
-      cacheCreationConfigured: true,
-    };
-  }
-  return undefined;
-};
-
-export function getServiceTierMultiplier(modelName: string, serviceTier?: string): number {
-  const tier = String(serviceTier ?? '')
-    .trim()
-    .toLowerCase();
-  if (tier === 'flex' || tier === 'batch') return 0.5;
-  if (tier !== 'priority' && tier !== 'fast') return 1;
-
-  const normalizedModel = String(modelName ?? '')
-    .trim()
-    .toLowerCase();
-  // OpenAI Priority pricing currently publishes tier multipliers for these
-  // model families. Keep this as a compatibility layer until model prices can
-  // be represented per tier, such as standard, priority, flex, and batch.
-  if (isModelFamily(normalizedModel, 'gpt-5.6')) return 2;
-  if (isModelFamily(normalizedModel, 'gpt-5.5')) return 2.5;
-  if (isModelFamily(normalizedModel, 'gpt-5.4-mini')) return 2;
-  if (isModelFamily(normalizedModel, 'gpt-5.4')) return 2;
-  if (isModelFamily(normalizedModel, 'gpt-5.3-codex')) return 2;
-  return 1;
-}
 
 export const compatibleCachedTokens = (
   cachedTokens: unknown,
@@ -1136,202 +1044,6 @@ export function extractTotalTokens(detail: unknown): number {
   );
 }
 
-export function calculateCost(
-  detail: Pick<
-    UsageDetail,
-    | 'tokens'
-    | '__modelName'
-    | '__requestedModel'
-    | '__resolvedModel'
-    | 'service_tier'
-    | 'serviceTier'
-    | 'request_service_tier'
-    | 'requestServiceTier'
-    | 'response_service_tier'
-    | 'responseServiceTier'
-    | 'executor_type'
-    | 'executorType'
-    | 'provider'
-    | 'auth_provider_snapshot'
-    | 'authProviderSnapshot'
-    | 'auth_type'
-    | 'authType'
-  >,
-  modelPrices: Record<string, ModelPrice>
-): number {
-  const resolvedModel = detail.__resolvedModel || '';
-  const analyticsModel = detail.__modelName || '';
-  const requestedModel = detail.__requestedModel || analyticsModel;
-  const resolvedPrice = resolvedModel ? modelPrices[resolvedModel] : undefined;
-  const analyticsPrice = analyticsModel ? modelPrices[analyticsModel] : undefined;
-  const requestedPrice = requestedModel ? modelPrices[requestedModel] : undefined;
-  const behaviorModel = resolvedModel || analyticsModel || requestedModel;
-  const behaviorFallback = getOfficialGpt56Price(behaviorModel);
-  const officialCandidatePrice =
-    getOfficialGpt56Price(resolvedModel) ||
-    getOfficialGpt56Price(analyticsModel) ||
-    getOfficialGpt56Price(requestedModel);
-  const configuredPrice = resolvedPrice || analyticsPrice || requestedPrice;
-  const basePrice = configuredPrice
-    ? {
-        ...configuredPrice,
-        prompt: isConfiguredPriceValue(configuredPrice.prompt, configuredPrice.promptConfigured)
-          ? Number(configuredPrice.prompt)
-          : (behaviorFallback?.prompt ?? 0),
-        completion: isConfiguredPriceValue(
-          configuredPrice.completion,
-          configuredPrice.completionConfigured
-        )
-          ? Number(configuredPrice.completion)
-          : (behaviorFallback?.completion ?? 0),
-      }
-    : officialCandidatePrice;
-  if (!basePrice) return 0;
-
-  const identity = [
-    detail.executor_type,
-    detail.executorType,
-    detail.provider,
-    detail.auth_provider_snapshot,
-    detail.authProviderSnapshot,
-    detail.auth_type,
-    detail.authType,
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-  const serviceTier = identity.includes('codex')
-    ? detail.request_service_tier ||
-      detail.requestServiceTier ||
-      detail.service_tier ||
-      detail.serviceTier ||
-      detail.response_service_tier ||
-      detail.responseServiceTier
-    : detail.response_service_tier ||
-      detail.responseServiceTier ||
-      detail.service_tier ||
-      detail.serviceTier ||
-      detail.request_service_tier ||
-      detail.requestServiceTier;
-
-  const inputTokens = Math.max(toFiniteNumber(detail.tokens.input_tokens), 0);
-  const completionTokens = Math.max(toFiniteNumber(detail.tokens.output_tokens), 0);
-  const cachedTokens = Math.max(
-    Math.max(toFiniteNumber(detail.tokens.cached_tokens), 0),
-    Math.max(toFiniteNumber(detail.tokens.cache_tokens), 0)
-  );
-  const cacheReadTokens = Math.max(toFiniteNumber(detail.tokens.cache_read_tokens), 0);
-  const cacheCreationTokens = Math.max(toFiniteNumber(detail.tokens.cache_creation_tokens), 0);
-  const hasContextPricing = Boolean(basePrice.contextTiers?.length);
-  const contextTier = selectContextTierPrice(basePrice, inputTokens);
-  const longContext =
-    !hasContextPricing && supportsLongContextPremium(behaviorModel) && inputTokens > 272_000;
-  const normalizedServiceTier = String(serviceTier ?? '')
-    .trim()
-    .toLowerCase();
-  const longContextOverridesServiceTier =
-    longContext && (normalizedServiceTier === 'priority' || normalizedServiceTier === 'fast');
-  const serviceTierPrice =
-    !contextTier && !longContextOverridesServiceTier
-      ? selectServiceTierPrice(basePrice, serviceTier)
-      : undefined;
-  const price = contextTier
-    ? applyContextTierPrice(basePrice, contextTier)
-    : serviceTierPrice
-      ? applyServiceTierPrice(basePrice, serviceTierPrice)
-      : basePrice;
-  const promptPrice = Number(price.prompt) || 0;
-  const completionPrice = Number(price.completion) || 0;
-  const configuredCacheReadPrice = Number(price.cacheRead) || 0;
-  const cacheReadPrice = isConfiguredPriceValue(configuredCacheReadPrice, price.cacheReadConfigured)
-    ? configuredCacheReadPrice
-    : isGpt56Model(behaviorModel)
-      ? promptPrice * 0.1
-      : Number(price.cache) || 0;
-  const configuredCacheCreationPrice = Number(price.cacheCreation) || 0;
-  const cacheCreationPrice = isConfiguredPriceValue(
-    configuredCacheCreationPrice,
-    price.cacheCreationConfigured
-  )
-    ? configuredCacheCreationPrice
-    : promptPrice * (isGpt56Model(behaviorModel) ? 1.25 : 1);
-  const readTokens = cachedTokens + cacheReadTokens;
-  const promptTokens = Math.max(inputTokens - readTokens - cacheCreationTokens, 0);
-  const inputMultiplier = longContext ? 2 : 1;
-  const outputMultiplier = longContext ? 1.5 : 1;
-  const standardCost =
-    ((promptTokens / TOKENS_PER_PRICE_UNIT) * promptPrice +
-      (cachedTokens / TOKENS_PER_PRICE_UNIT) * (Number(price.cache) || 0) +
-      (cacheReadTokens / TOKENS_PER_PRICE_UNIT) * cacheReadPrice +
-      (cacheCreationTokens / TOKENS_PER_PRICE_UNIT) * cacheCreationPrice) *
-      inputMultiplier +
-    (completionTokens / TOKENS_PER_PRICE_UNIT) * completionPrice * outputMultiplier;
-
-  const multiplier =
-    longContextOverridesServiceTier || contextTier || serviceTierPrice
-      ? 1
-      : getServiceTierMultiplier(behaviorModel, serviceTier);
-  const total = standardCost * multiplier;
-  return Number.isFinite(total) && total > 0 ? total : 0;
-}
-
-function selectContextTierPrice(
-  price: ModelPrice,
-  inputTokens: number
-): ModelPriceContextTier | undefined {
-  return (price.contextTiers ?? []).reduce<ModelPriceContextTier | undefined>(
-    (selected, candidate) =>
-      inputTokens > candidate.thresholdTokens &&
-      (!selected || candidate.thresholdTokens > selected.thresholdTokens)
-        ? candidate
-        : selected,
-    undefined
-  );
-}
-
-function applyContextTierPrice(price: ModelPrice, tier: ModelPriceContextTier): ModelPrice {
-  return {
-    ...price,
-    prompt: tier.promptConfigured ? tier.prompt : price.prompt,
-    completion: tier.completionConfigured ? tier.completion : price.completion,
-    cache: tier.cacheConfigured ? tier.cache : price.cache,
-    cacheRead: tier.cacheReadConfigured ? tier.cacheRead : price.cacheRead,
-    cacheCreation: tier.cacheCreationConfigured ? tier.cacheCreation : price.cacheCreation,
-    promptConfigured: tier.promptConfigured ? true : price.promptConfigured,
-    completionConfigured: tier.completionConfigured ? true : price.completionConfigured,
-    cacheReadConfigured: tier.cacheReadConfigured ? true : price.cacheReadConfigured,
-    cacheCreationConfigured: tier.cacheCreationConfigured ? true : price.cacheCreationConfigured,
-  };
-}
-
-function selectServiceTierPrice(
-  price: ModelPrice,
-  serviceTier: string | undefined
-): ModelPriceServiceTier | undefined {
-  const normalized = String(serviceTier ?? '')
-    .trim()
-    .toLowerCase();
-  if (!normalized) return undefined;
-  return (price.serviceTiers ?? []).find(
-    (tier) => normalized === tier.mode || normalized === tier.serviceTier
-  );
-}
-
-function applyServiceTierPrice(price: ModelPrice, tier: ModelPriceServiceTier): ModelPrice {
-  return {
-    ...price,
-    prompt: tier.promptConfigured ? tier.prompt : price.prompt,
-    completion: tier.completionConfigured ? tier.completion : price.completion,
-    cache: tier.cacheConfigured ? tier.cache : price.cache,
-    cacheRead: tier.cacheReadConfigured ? tier.cacheRead : price.cacheRead,
-    cacheCreation: tier.cacheCreationConfigured ? tier.cacheCreation : price.cacheCreation,
-    promptConfigured: tier.promptConfigured ? true : price.promptConfigured,
-    completionConfigured: tier.completionConfigured ? true : price.completionConfigured,
-    cacheReadConfigured: tier.cacheReadConfigured ? true : price.cacheReadConfigured,
-    cacheCreationConfigured: tier.cacheCreationConfigured ? true : price.cacheCreationConfigured,
-  };
-}
-
 function normalizeContextTiers(value: unknown): ModelPriceContextTier[] | undefined {
   if (!Array.isArray(value)) return undefined;
   const tiers: ModelPriceContextTier[] = [];
@@ -1535,6 +1247,37 @@ export function formatUsd(value: number, fractionDigits = 2): string {
     maximumFractionDigits: digits,
   });
   return `$${parts}`;
+}
+
+export interface CostPair {
+  usd?: number | null;
+  cny?: number | null;
+}
+
+const formatCny = (value: number, digits: number): string =>
+  `¥${Number(value.toFixed(digits)).toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })}`;
+
+const toCostAmount = (value: number | null | undefined): number => {
+  const num = Number(value);
+  return Number.isFinite(num) && num > 0 ? num : 0;
+};
+
+/**
+ * Formats stored cost in whichever currencies exist. USD (default price book estimate)
+ * and CNY (provider rules) are never converted or merged: only CNY -> `¥1,234.56`,
+ * only USD -> `$12.34`, both -> `¥1,234.56 · $12.34`, neither -> `--`.
+ */
+export function formatCostPair(cost: CostPair, digits = 2): string {
+  const fractionDigits = Number.isInteger(digits) ? Math.max(0, Math.min(6, digits)) : 2;
+  const cny = toCostAmount(cost.cny);
+  const usd = toCostAmount(cost.usd);
+  const parts: string[] = [];
+  if (cny > 0) parts.push(formatCny(cny, fractionDigits));
+  if (usd > 0) parts.push(formatUsd(usd, fractionDigits));
+  return parts.length > 0 ? parts.join(' · ') : '--';
 }
 
 const resolveDurationLocale = (locale?: string): string | undefined =>

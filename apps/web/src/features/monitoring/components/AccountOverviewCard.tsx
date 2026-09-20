@@ -23,7 +23,7 @@ import type {
   MonitoringAccountModelSpendRow,
   MonitoringAccountRow,
 } from '@/features/monitoring/hooks/useMonitoringData';
-import { formatCompactNumber, formatUsd } from '@/utils/usage';
+import { formatCompactNumber, formatCostPair } from '@/utils/usage';
 import type { StatusBarData } from '@/utils/recentRequests';
 import { MonitoringHealthStatusBar } from './MonitoringHealthStatusBar';
 import {
@@ -510,7 +510,7 @@ function AccountHealthStatusPanel({
       key: 'estimated-cost',
       label: shortLabel(t, 'monitoring.estimated_cost_short', 'monitoring.estimated_cost'),
       fullLabel: t('monitoring.estimated_cost'),
-      value: hasPrices ? formatUsd(row.totalCost) : '--',
+      value: hasPrices ? formatCostPair({ usd: row.totalCost, cny: row.totalCostCny }) : '--',
       className: styles.primaryText,
     },
     {
@@ -626,7 +626,11 @@ function AccountModelUsageList({
                     </span>
                     <span className={styles.accountModelStat}>
                       <small>{t('monitoring.account_overview_model_total_cost_short')}</small>
-                      <strong>{hasPrices ? formatUsd(model.totalCost) : '--'}</strong>
+                      <strong>
+                        {hasPrices
+                          ? formatCostPair({ usd: model.totalCost, cny: model.totalCostCny })
+                          : '--'}
+                      </strong>
                     </span>
                     <span className={styles.accountModelChevron} aria-hidden="true">
                       {isModelExpanded ? (
@@ -764,7 +768,11 @@ export function AccountModelUsageTable({
                     </span>
                   </td>
                   <td>{formatCompactNumber(model.totalTokens)}</td>
-                  <td>{hasPrices ? formatUsd(model.totalCost) : '--'}</td>
+                  <td>
+                    {hasPrices
+                      ? formatCostPair({ usd: model.totalCost, cny: model.totalCostCny })
+                      : '--'}
+                  </td>
                   <td>{new Date(model.lastSeenAt).toLocaleString(locale)}</td>
                 </tr>
               );

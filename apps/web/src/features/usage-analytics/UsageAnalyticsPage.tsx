@@ -46,6 +46,7 @@ import {
   formatHeatmapMetricValue,
   formatLocalDateTime,
   formatMetricValue,
+  formatRowCost,
   getUsageCacheTokens,
   hasUsageData,
   maskApiKeyHash,
@@ -100,6 +101,7 @@ import {
   providerSupportsBuckets,
   UNTAGGED_BUCKET_FILTER,
 } from '@/features/authFiles/bucketOptions';
+import { formatCostPair } from '@/utils/usage';
 import styles from './UsageAnalyticsPage.module.scss';
 
 const trendMetricOptions: Array<{ value: UsageTrendMetricKey; labelKey: string }> = [
@@ -162,6 +164,11 @@ const usageChartAxisKeys = {
   tokens: 1,
   cost: 2,
 } as const;
+
+// Extra trend-chart axis/series for CNY spend from provider rules. It is drawn next to the
+// USD cost series (never converted into or merged with it) and only when CNY values exist.
+const USAGE_CNY_AXIS_INDEX = 3;
+const USAGE_CNY_SERIES_COLOR = '#e11d48';
 
 type UsageChartTheme = {
   axisColors: Record<'requests' | 'tokens' | 'cost', string>;
@@ -515,7 +522,10 @@ const getUsageChartTooltipFormatter =
         const value =
           metric && typeof entry.data === 'number'
             ? formatMetricValue(metric.key, entry.data)
-            : String(entry.data ?? '-');
+            : entry.seriesName === t('usage_analytics.metric_estimated_cost_cny') &&
+                typeof entry.data === 'number'
+              ? formatCostPair({ cny: entry.data })
+              : String(entry.data ?? '-');
         return tooltipRowHtml(
           chartTheme,
           `${entry.marker ?? ''}${escapeHtml(entry.seriesName)}`,
@@ -553,9 +563,29 @@ const buildUsageTrendChartOption = ({
   const requestsVisible = visibleAxisSet.has('requests');
   const tokensVisible = visibleAxisSet.has('tokens');
   const costVisible = visibleAxisSet.has('cost');
+  // Cost is plotted per currency: the USD series keeps the `$` axis and, when any bucket
+  // carries CNY spend (provider rules), a separate CNY series is added on its own `¥` axis.
+  const cnyVisible = costVisible && timeline.some((point) => (point.estimatedCostCny ?? 0) > 0);
   const tokensOnRight = tokensVisible && requestsVisible;
   const costOnRight = costVisible && (requestsVisible || tokensVisible);
-  const rightAxisCount = Number(tokensOnRight) + Number(costOnRight);
+  const rightAxisCount = Number(tokensOnRight) + Number(costOnRight) + Number(cnyVisible);
+  const cnySeries: LineSeriesOption[] = cnyVisible
+    ? [
+        {
+          connectNulls: true,
+          data: timeline.map((point) => point.estimatedCostCny ?? 0),
+          emphasis: { focus: 'series', lineStyle: { width: compact ? 2.6 : 3.2 } },
+          lineStyle: { color: USAGE_CNY_SERIES_COLOR, width: compact ? 2 : 2.5 },
+          name: t('usage_analytics.metric_estimated_cost_cny'),
+          showSymbol: timeline.length <= 36,
+          smooth: 0.25,
+          symbol: 'circle',
+          symbolSize: compact ? 5 : 6,
+          type: 'line',
+          yAxisIndex: USAGE_CNY_AXIS_INDEX,
+        },
+      ]
+    : [];
   const splitLineAxis = requestsVisible ? 'requests' : tokensVisible ? 'tokens' : 'cost';
   const selectedLine =
     selectedLabel && metrics.length > 0
@@ -575,7 +605,10 @@ const buildUsageTrendChartOption = ({
   return {
     animationDuration: compact ? 180 : 320,
     backgroundColor: 'transparent',
-    color: metrics.map((metric) => metric.color),
+    color: [
+      ...metrics.map((metric) => metric.color),
+      ...(cnyVisible ? [USAGE_CNY_SERIES_COLOR] : []),
+    ],
     dataZoom:
       timeline.length > 12
         ? [
@@ -594,7 +627,7 @@ const buildUsageTrendChartOption = ({
       bottom: compact ? 34 : 44,
       containLabel: true,
       left: 10,
-      right: rightAxisCount > 1 ? 104 : rightAxisCount === 1 ? 72 : 28,
+      right: rightAxisCount > 2 ? 150 : rightAxisCount > 1 ? 104 : rightAxisCount === 1 ? 72 : 28,
       top: compact ? 16 : 28,
     },
     legend: {
@@ -705,8 +738,21 @@ const buildUsageTrendChartOption = ({
         },
         type: 'value',
       },
+      {
+        axisLabel: {
+          color: USAGE_CNY_SERIES_COLOR,
+          formatter: (value: number) => `¥${compactNumber(value)}`,
+          fontWeight: 700,
+        },
+        offset: (Number(tokensOnRight) + Number(costOnRight)) * 46,
+        position: 'right',
+        scale: true,
+        show: cnyVisible,
+        splitLine: { show: false },
+        type: 'value',
+      },
     ],
-    series: metrics.map((metric, index) => ({
+    series: (metrics.map((metric, index) => ({
       areaStyle:
         compact || index > 1
           ? undefined
@@ -741,7 +787,7 @@ const buildUsageTrendChartOption = ({
       symbolSize: compact ? 5 : 6,
       type: 'line',
       yAxisIndex: getMetricAxisIndex(metric.axis),
-    })),
+    })) as LineSeriesOption[]).concat(cnySeries),
   };
 };
 
@@ -2138,7 +2184,7 @@ function KeyAnomalyTable({
                   </span>
                 </td>
                 <td>{row.triggeredAtMs ? formatLocalDateTime(row.triggeredAtMs, locale) : '-'}</td>
-                <td>{formatMetricValue('estimatedCost', row.row.estimatedCost)}</td>
+                <td>{formatRowCost(row.row)}</td>
                 <td>{formatPercent(row.row.failureCount / Math.max(row.row.requestCount, 1))}</td>
                 {onOpen ? (
                   <td>
@@ -2195,7 +2241,7 @@ function ApiKeyContextTable({ locale, rows }: { locale: string; rows: UsageApiKe
                     {row.sourceHash || '-'}
                   </td>
                   <td>{compactNumber(row.requestCount)}</td>
-                  <td>{formatMetricValue('estimatedCost', row.estimatedCost)}</td>
+                  <td>{formatRowCost(row)}</td>
                   <td
                     className={
                       row.requestCount > 0 &&
@@ -2271,7 +2317,7 @@ function ProviderOverviewPanel({
                   </td>
                   <td>{formatMetricValue('requestCount', row.requestCount)}</td>
                   <td>{formatPercent(row.requestShare)}</td>
-                  <td>{formatMetricValue('estimatedCost', row.estimatedCost)}</td>
+                  <td>{formatRowCost(row)}</td>
                   <td>{formatPercent(row.costShare)}</td>
                   <td>{formatMetricValue('totalTokens', row.totalTokens)}</td>
                   <td
@@ -3609,7 +3655,7 @@ function AnomalyPointsPanel({
                   </td>
                   <td>{compactNumber(row.requestCount)}</td>
                   <td>{compactNumber(row.totalTokens)}</td>
-                  <td>{formatMetricValue('estimatedCost', row.estimatedCost)}</td>
+                  <td>{formatRowCost(row)}</td>
                   <td>
                     <span className={styles.anomalyTypeList}>
                       {row.metricKeys.slice(0, 3).map((key) => (
@@ -3785,7 +3831,7 @@ function RankTable({
                 {type !== 'credential' ? (
                   <td>{formatPercent(computeRowCacheHitRate(row))}</td>
                 ) : null}
-                <td>{formatMetricValue('estimatedCost', row.estimatedCost)}</td>
+                <td>{formatRowCost(row)}</td>
                 {type !== 'credential' ? (
                   <td>{formatMetricValue('estimatedCost', computeRowAverageCostPerCall(row))}</td>
                 ) : null}

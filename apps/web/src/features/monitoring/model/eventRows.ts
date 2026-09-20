@@ -1,11 +1,6 @@
 import type { CredentialInfo } from '@/types/sourceInfo';
 import { buildSourceInfoMap, resolveSourceDisplay } from '@/utils/sourceResolver';
-import {
-  calculateCost,
-  normalizeAuthIndex,
-  type ModelPrice,
-  type UsageDetailWithEndpoint,
-} from '@/utils/usage';
+import { normalizeAuthIndex, type UsageDetailWithEndpoint } from '@/utils/usage';
 import { formatApiKeyHashLabel } from './base';
 import { buildSearchText, maskAuthIndex, maskEmailLike, readString } from './base';
 import { sanitizeApiKeyDisplayText, type ApiKeyDisplayInfo } from './apiKeys';
@@ -35,7 +30,6 @@ export const buildEventRows = (
   authFileMap: Map<string, CredentialInfo>,
   sourceInfoMap: ReturnType<typeof buildSourceInfoMap>,
   channelByAuthIndex: Map<string, MonitoringChannelMeta>,
-  modelPrices: Record<string, ModelPrice>,
   apiKeyDisplayMap: Map<string, ApiKeyDisplayInfo>
 ) =>
   details
@@ -144,7 +138,10 @@ export const buildEventRows = (
       const latencyMs = toDurationMs(detail.latency_ms);
       const ttftMs = toDurationMs(detail.ttft_ms);
       const tokensPerSecond = calculateOutputTokensPerSecond(outputTokens, latencyMs);
-      const totalCost = calculateCost(detail, modelPrices);
+      // Cost is stored per event by the backend; USD and CNY are separate currencies.
+      const totalCost = Math.max(Number(detail.cost_usd) || 0, 0);
+      const totalCostCny = Math.max(Number(detail.cost_cny) || 0, 0);
+      const priceSource = readString(detail.price_source);
       const statsIncluded = detail.failed === true || inputTokens > 0 || outputTokens > 0;
       const dayKey = buildLocalDayKey(timestampMs);
       const hourLabel = buildHourLabel(timestampMs);
@@ -258,6 +255,8 @@ export const buildEventRows = (
         cacheCreationTokens,
         totalTokens,
         totalCost,
+        totalCostCny,
+        priceSource,
         reasoningEffort,
         serviceTier,
         requestServiceTier,

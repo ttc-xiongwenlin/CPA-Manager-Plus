@@ -30,7 +30,7 @@ import type {
   AccountDetailWindowUsageSummary,
 } from '@/features/accounts/model/accountDetailViewModel';
 import { formatQuotaResetDisplay } from '@/features/accounts/model/accountsPagePresentation';
-import { formatUsd } from '@/utils/usage';
+import { formatCostPair } from '@/utils/usage';
 import { isCodexMainQuotaModelScope } from '@/utils/quota/codexQuota';
 import { QuotaProgressBar } from './QuotaProgressBar';
 import styles from './QuotaWindowCard.module.scss';
@@ -64,10 +64,9 @@ const formatCompactNumber = (value: number | null | undefined): string => {
   return `${(value / 1_000_000_000).toFixed(1)}B`;
 };
 
-const formatMoney = (value: number | null | undefined): string => {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return '-';
-  return formatUsd(value);
-};
+// USD estimate and CNY real spend are separate currencies; show whichever exists.
+const formatMoney = (usd: number | null | undefined, cny?: number | null): string =>
+  formatCostPair({ usd, cny });
 
 const formatRange = (
   fromMs: number | null | undefined,
@@ -237,7 +236,7 @@ const UsageMetricList = ({
       icon={<IconDollarSign size={16} />}
       tone="amber"
       label={labels.cost}
-      value={formatMoney(usage.totalCost)}
+      value={formatMoney(usage.totalCost, usage.totalCostCny)}
     />
     <MetricItem
       icon={<IconCheck size={16} />}
@@ -340,7 +339,7 @@ const ForecastColumn = ({
           icon={<IconDollarSign size={16} />}
           tone="amber"
           label={labels.cost}
-          value={formatMoney(forecast.cost)}
+          value={formatMoney(forecast.cost, forecast.costCny)}
         />
         <div
           className={styles.forecastNotice}

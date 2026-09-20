@@ -16,7 +16,7 @@ import {
 } from '@/features/authFiles/model/credentialStatus';
 import type { MonitoringAccountHistoryItem, MonitoringAnalyticsEventRow } from '@/services/api';
 import { parseQuotaResetLabelMs } from '@/utils/quota/formatters';
-import { formatUsd } from '@/utils/usage';
+import { formatCostPair, formatUsd } from '@/utils/usage';
 import { getEffectiveAccountInspectionAction } from './accountCredentialEvidence';
 
 export type AccountsView = 'accounts' | 'health' | 'oauth';
@@ -146,7 +146,7 @@ export const getAccountHistoryTitle = (
   return t('accounts.history_title', {
     requests: formatCompactNumber(item.total_requests),
     tokens: formatCompactNumber(item.total_tokens),
-    cost: formatMoney(item.total_cost),
+    cost: formatCostPair({ usd: item.total_cost, cny: item.total_cost_cny }),
     rate: formatHistorySuccessRate(item.success_rate),
   });
 };

@@ -72,7 +72,7 @@ import {
   calculateCacheHitRateFromTotals,
   formatCompactNumber,
   formatDurationMs,
-  formatUsd,
+  formatCostPair,
   normalizeAuthIndex,
   type ModelPrice,
 } from '@/utils/usage';
@@ -688,6 +688,17 @@ export const buildAccountSortOptions = (
     }));
 };
 
+// USD (default price book) and CNY (provider rules) are separate; show whichever exists.
+const formatSummaryCost = (summary: MonitoringSummary) =>
+  formatCostPair({ usd: summary.totalCost, cny: summary.totalCostCny });
+
+const buildEstimatedCostMeta = (summary: MonitoringSummary, t: TFunction) => {
+  const unpricedCalls = summary.unpricedCalls ?? 0;
+  return unpricedCalls > 0
+    ? `${t('monitoring.estimated_cost_hint')} · ${t('common.unpriced_calls_hint', { count: unpricedCalls })}`
+    : t('monitoring.estimated_cost_hint');
+};
+
 export const buildPrimarySummaryCards = ({
   summary,
   accountCount,
@@ -734,9 +745,9 @@ export const buildPrimarySummaryCards = ({
   {
     label: shortLabel(t, 'monitoring.estimated_cost_short', 'monitoring.estimated_cost'),
     fullLabel: t('monitoring.estimated_cost'),
-    value: hasPrices ? formatUsd(summary.totalCost) : '--',
-    valueTitle: hasPrices ? formatUsd(summary.totalCost) : undefined,
-    meta: hasPrices ? t('monitoring.estimated_cost_hint') : t('monitoring.estimated_cost_missing'),
+    value: hasPrices ? formatSummaryCost(summary) : '--',
+    valueTitle: hasPrices ? formatSummaryCost(summary) : undefined,
+    meta: hasPrices ? buildEstimatedCostMeta(summary, t) : t('monitoring.estimated_cost_missing'),
     tone: hasPrices ? undefined : 'warn',
     icon: 'cost',
     accent: 'amber',

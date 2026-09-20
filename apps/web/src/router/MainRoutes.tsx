@@ -24,6 +24,7 @@ import { MonitoringCenterPage } from '@/pages/MonitoringCenterPage';
 import { AccountActionCandidatesPage } from '@/pages/AccountActionCandidatesPage';
 import { ErrorInsightPage } from '@/pages/ErrorInsightPage';
 import { ModelPricesPage } from '@/pages/ModelPricesPage';
+import { ProviderPricesPage } from '@/pages/ProviderPricesPage';
 import { ConfigPage } from '@/pages/ConfigPage';
 import { LogsPage } from '@/pages/LogsPage';
 import { PluginResourcePage } from '@/pages/PluginResourcePage';
@@ -169,6 +170,14 @@ const mainRoutes: RouteObject[] = [
     element: (
       <FeatureGate feature="modelPrices">
         <ModelPricesPage />
+      </FeatureGate>
+    ),
+  },
+  {
+    path: '/model-prices/providers',
+    element: (
+      <FeatureGate feature="modelPrices">
+        <ProviderPricesPage />
       </FeatureGate>
     ),
   },

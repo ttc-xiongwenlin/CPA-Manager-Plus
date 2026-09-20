@@ -4,7 +4,7 @@ import { IconChevronDown, IconChevronUp, IconCopy, IconInfo, IconKey } from '@/c
 import type { MonitoringApiKeyRow } from '@/features/monitoring/hooks/useMonitoringData';
 import { useNotificationStore } from '@/stores';
 import { copyToClipboard } from '@/utils/clipboard';
-import { formatCompactNumber, formatUsd } from '@/utils/usage';
+import { formatCompactNumber, formatCostPair } from '@/utils/usage';
 import { AccountModelUsageTable, AccountTokenMetricGrid } from './AccountOverviewCard';
 import { MonitoringPanel } from './MonitoringPanel';
 import { PaginationControls } from './MonitoringShared';
@@ -151,7 +151,7 @@ const buildApiKeySummaryMetrics = (
     key: 'estimated-cost',
     label: shortLabel(t, 'monitoring.estimated_cost_short', 'monitoring.estimated_cost'),
     fullLabel: t('monitoring.estimated_cost'),
-    value: hasPrices ? formatUsd(row.totalCost) : '--',
+    value: hasPrices ? formatCostPair({ usd: row.totalCost, cny: row.totalCostCny }) : '--',
   },
   {
     key: 'latest-request-time',

@@ -25,7 +25,7 @@ import type { AccountDisplayMode } from '@/features/monitoring/accountOverviewSt
 import { useNotificationStore } from '@/stores';
 import { copyToClipboard } from '@/utils/clipboard';
 import { maskSensitiveText, truncateText } from '@/utils/format';
-import { formatCompactNumber, formatUsd } from '@/utils/usage';
+import { formatCompactNumber, formatCostPair } from '@/utils/usage';
 import styles from '../MonitoringCenterPage.module.scss';
 
 type RealtimeLogRow = MonitoringEventRow & {
@@ -1284,7 +1284,11 @@ export function RealtimeEventsPanel({
                       tooltipId={`${tooltipIdPrefix}-token-usage-tooltip-${row.id}`}
                     />
                   </td>
-                  <td>{hasPrices ? formatUsd(row.totalCost, 3) : '--'}</td>
+                  <td>
+                    {hasPrices && row.priceSource && row.priceSource !== 'none'
+                      ? formatCostPair({ usd: row.totalCost, cny: row.totalCostCny }, 3)
+                      : '--'}
+                  </td>
                 </tr>
               );
             })}

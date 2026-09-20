@@ -298,6 +298,7 @@ const buildModelSpendRowsFromAnalytics = (
       cacheCreationTokens: row.cache_creation_tokens ?? 0,
       totalTokens: row.total_tokens,
       totalCost: row.cost,
+      totalCostCny: row.cost_cny ?? 0,
       lastSeenAt: row.last_seen_ms,
     }))
     .sort((left, right) => right.totalCost - left.totalCost || right.totalCalls - left.totalCalls);
@@ -472,6 +473,8 @@ export const buildSummaryFromAnalytics = (
   cacheHitRate: summary.cache_hit_rate,
   totalTokens: summary.total_tokens,
   totalCost: summary.total_cost,
+  totalCostCny: summary.total_cost_cny ?? 0,
+  unpricedCalls: summary.unpriced_calls ?? 0,
   averageLatencyMs: summary.average_latency_ms,
   rpm30m: summary.rpm_30m,
   tpm30m: summary.tpm_30m,
@@ -529,6 +532,7 @@ export const buildModelShareRowsFromAnalytics = (
     requests: row.calls,
     totalTokens: row.tokens,
     totalCost: row.cost,
+    totalCostCny: row.cost_cny ?? 0,
     successRate: successRateByModel.get(row.model) ?? 1,
   }));
 };
@@ -543,6 +547,7 @@ export const buildModelRowsFromAnalytics = (
     successRate: row.success_rate,
     totalTokens: row.total_tokens,
     totalCost: row.cost,
+    totalCostCny: row.cost_cny ?? 0,
     averageLatencyMs: null,
     sources: 0,
     channels: 0,
@@ -600,6 +605,7 @@ export const buildChannelRowsFromAnalytics = (
         successRate: row.calls > 0 ? row.success / row.calls : 1,
         totalTokens: row.tokens,
         totalCost: row.cost,
+        totalCostCny: row.cost_cny ?? 0,
         averageLatencyMs: row.average_latency_ms,
         authLabels: [authMeta?.label || row.auth_label_snapshot || display.sourceLabel].filter(
           (value): value is string => Boolean(value)
@@ -723,6 +729,7 @@ export const buildAccountRowsFromAnalytics = (
         cacheCreationTokens: row.cache_creation_tokens ?? 0,
         totalTokens: row.total_tokens,
         totalCost: row.cost,
+        totalCostCny: row.cost_cny ?? 0,
         averageLatencyMs: row.average_latency_ms,
         lastSeenAt: row.last_seen_ms,
         recentPattern: [],
@@ -813,6 +820,7 @@ export const buildApiKeyRowsFromAnalytics = (
         cacheCreationTokens: row.cache_creation_tokens ?? 0,
         totalTokens: row.total_tokens,
         totalCost: row.cost,
+        totalCostCny: row.cost_cny ?? 0,
         averageLatencyMs: row.average_latency_ms,
         lastSeenAt: row.last_seen_ms,
         models: buildModelSpendRowsFromAnalytics(row.models),
@@ -1112,6 +1120,10 @@ export const buildUsageDetailsFromAnalyticsEvents = (
       header_trace_id: readString(item.header_trace_id),
       analytics_model: analyticsModel,
       requested_model: requestedModel,
+      cost_usd: item.cost_usd,
+      cost_cny: item.cost_cny,
+      price_source: item.price_source ?? '',
+      cost_multiplier: item.cost_multiplier,
       __modelName: analyticsModel,
       __requestedModel: requestedModel,
       __resolvedModel: readString(item.resolved_model),

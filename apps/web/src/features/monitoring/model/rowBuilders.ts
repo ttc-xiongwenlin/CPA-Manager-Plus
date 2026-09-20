@@ -296,6 +296,8 @@ export const buildMonitoringSummary = (rows: MonitoringEventRow[]): MonitoringSu
   );
   const totalTokens = rows.reduce((sum, row) => sum + row.totalTokens, 0);
   const totalCost = rows.reduce((sum, row) => sum + row.totalCost, 0);
+  const totalCostCny = rows.reduce((sum, row) => sum + (row.totalCostCny ?? 0), 0);
+  const unpricedCalls = rows.filter((row) => row.priceSource === 'none').length;
 
   let latencySum = 0;
   let latencyCount = 0;
@@ -341,6 +343,8 @@ export const buildMonitoringSummary = (rows: MonitoringEventRow[]): MonitoringSu
     ),
     totalTokens,
     totalCost,
+    totalCostCny,
+    unpricedCalls,
     averageLatencyMs: latencyCount > 0 ? latencySum / latencyCount : null,
     rpm30m: recentRows.length / 30,
     tpm30m: recentTokens / 30,
@@ -384,6 +388,7 @@ export const buildAccountRows = (rows: MonitoringEventRow[]): MonitoringAccountR
           cacheCreationTokens: number;
           totalTokens: number;
           totalCost: number;
+          totalCostCny: number;
           lastSeenAt: number;
         }
       >;
@@ -398,6 +403,7 @@ export const buildAccountRows = (rows: MonitoringEventRow[]): MonitoringAccountR
       cacheCreationTokens: number;
       totalTokens: number;
       totalCost: number;
+      totalCostCny: number;
       latencySum: number;
       latencyCount: number;
       lastSeenAt: number;
@@ -442,6 +448,7 @@ export const buildAccountRows = (rows: MonitoringEventRow[]): MonitoringAccountR
       cacheCreationTokens: 0,
       totalTokens: 0,
       totalCost: 0,
+      totalCostCny: 0,
       latencySum: 0,
       latencyCount: 0,
       lastSeenAt: 0,
@@ -466,6 +473,7 @@ export const buildAccountRows = (rows: MonitoringEventRow[]): MonitoringAccountR
     existing.cacheCreationTokens += row.cacheCreationTokens;
     existing.totalTokens += row.totalTokens;
     existing.totalCost += row.totalCost;
+    existing.totalCostCny += row.totalCostCny ?? 0;
     existing.lastSeenAt = Math.max(existing.lastSeenAt, row.timestampMs);
 
     if (row.latencyMs !== null) {
@@ -485,6 +493,7 @@ export const buildAccountRows = (rows: MonitoringEventRow[]): MonitoringAccountR
       cacheCreationTokens: 0,
       totalTokens: 0,
       totalCost: 0,
+      totalCostCny: 0,
       lastSeenAt: 0,
     };
 
@@ -498,6 +507,7 @@ export const buildAccountRows = (rows: MonitoringEventRow[]): MonitoringAccountR
     modelEntry.cacheCreationTokens += row.cacheCreationTokens;
     modelEntry.totalTokens += row.totalTokens;
     modelEntry.totalCost += row.totalCost;
+    modelEntry.totalCostCny += row.totalCostCny ?? 0;
     modelEntry.lastSeenAt = Math.max(modelEntry.lastSeenAt, row.timestampMs);
     existing.modelMap.set(row.model, modelEntry);
 
@@ -540,6 +550,7 @@ export const buildAccountRows = (rows: MonitoringEventRow[]): MonitoringAccountR
         cacheCreationTokens: item.cacheCreationTokens,
         totalTokens: item.totalTokens,
         totalCost: item.totalCost,
+        totalCostCny: item.totalCostCny,
         averageLatencyMs: item.latencyCount > 0 ? item.latencySum / item.latencyCount : null,
         lastSeenAt: item.lastSeenAt,
         recentPattern: buildRecentPattern(item.rows),
@@ -591,6 +602,7 @@ export const buildApiKeyRows = (
           cacheCreationTokens: number;
           totalTokens: number;
           totalCost: number;
+          totalCostCny: number;
           lastSeenAt: number;
         }
       >;
@@ -604,6 +616,7 @@ export const buildApiKeyRows = (
       cacheCreationTokens: number;
       totalTokens: number;
       totalCost: number;
+      totalCostCny: number;
       latencySum: number;
       latencyCount: number;
       lastSeenAt: number;
@@ -642,6 +655,7 @@ export const buildApiKeyRows = (
       cacheCreationTokens: 0,
       totalTokens: 0,
       totalCost: 0,
+      totalCostCny: 0,
       latencySum: 0,
       latencyCount: 0,
       lastSeenAt: 0,
@@ -678,6 +692,7 @@ export const buildApiKeyRows = (
     existing.cacheCreationTokens += row.cacheCreationTokens;
     existing.totalTokens += row.totalTokens;
     existing.totalCost += row.totalCost;
+    existing.totalCostCny += row.totalCostCny ?? 0;
     existing.lastSeenAt = Math.max(existing.lastSeenAt, row.timestampMs);
 
     if (row.latencyMs !== null) {
@@ -697,6 +712,7 @@ export const buildApiKeyRows = (
       cacheCreationTokens: 0,
       totalTokens: 0,
       totalCost: 0,
+      totalCostCny: 0,
       lastSeenAt: 0,
     };
 
@@ -710,6 +726,7 @@ export const buildApiKeyRows = (
     modelEntry.cacheCreationTokens += row.cacheCreationTokens;
     modelEntry.totalTokens += row.totalTokens;
     modelEntry.totalCost += row.totalCost;
+    modelEntry.totalCostCny += row.totalCostCny ?? 0;
     modelEntry.lastSeenAt = Math.max(modelEntry.lastSeenAt, row.timestampMs);
     existing.modelMap.set(row.model, modelEntry);
 
@@ -738,6 +755,7 @@ export const buildApiKeyRows = (
       cacheCreationTokens: item.cacheCreationTokens,
       totalTokens: item.totalTokens,
       totalCost: item.totalCost,
+      totalCostCny: item.totalCostCny,
       averageLatencyMs: item.latencyCount > 0 ? item.latencySum / item.latencyCount : null,
       lastSeenAt: item.lastSeenAt,
       models: Array.from(item.modelMap.values())
@@ -781,6 +799,7 @@ export const buildRealtimeMonitorRows = (rows: MonitoringEventRow[]): Monitoring
       cacheCreationTokens: number;
       totalTokens: number;
       totalCost: number;
+      totalCostCny: number;
       latencySum: number;
       latencyCount: number;
       latestLatencyMs: number | null;
@@ -820,6 +839,7 @@ export const buildRealtimeMonitorRows = (rows: MonitoringEventRow[]): Monitoring
       cacheCreationTokens: 0,
       totalTokens: 0,
       totalCost: 0,
+      totalCostCny: 0,
       latencySum: 0,
       latencyCount: 0,
       latestLatencyMs: null,
@@ -836,6 +856,7 @@ export const buildRealtimeMonitorRows = (rows: MonitoringEventRow[]): Monitoring
     existing.cacheCreationTokens += row.cacheCreationTokens;
     existing.totalTokens += row.totalTokens;
     existing.totalCost += row.totalCost;
+    existing.totalCostCny += row.totalCostCny ?? 0;
 
     if (row.timestampMs >= existing.lastSeenAt) {
       existing.lastSeenAt = row.timestampMs;
@@ -878,6 +899,7 @@ export const buildRealtimeMonitorRows = (rows: MonitoringEventRow[]): Monitoring
         cacheCreationTokens: item.cacheCreationTokens,
         totalTokens: item.totalTokens,
         totalCost: item.totalCost,
+        totalCostCny: item.totalCostCny,
         lastSeenAt: item.lastSeenAt,
         recentPattern: buildRecentPattern(item.rows),
       };

@@ -235,6 +235,9 @@ export function ModelPricesPage() {
           <span className={styles.metaPill}>
             {t('model_prices.sync_model_count', { count: syncModels.length })}
           </span>
+          <Link to="/model-prices/providers" className={styles.backLink}>
+            {t('model_prices.provider_prices_link')}
+          </Link>
           <Button
             size="xs"
             variant="secondary"

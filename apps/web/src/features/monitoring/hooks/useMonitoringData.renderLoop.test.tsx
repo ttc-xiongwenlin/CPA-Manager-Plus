@@ -2,7 +2,6 @@ import { Profiler } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ApiKeyAlias } from '@/services/api/usageService';
-import type { ModelPrice } from '@/utils/usage';
 
 vi.mock('../services/monitoringMetaService', () => ({
   loadMonitoringMetaPayload: vi.fn(async () => ({
@@ -32,7 +31,6 @@ import { useMonitoringData } from './useMonitoringData';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const EMPTY_MODEL_PRICES: Record<string, ModelPrice> = {};
 const EMPTY_API_KEY_ALIASES: ApiKeyAlias[] = [];
 const ALL_SCOPE_FILTERS = {
   account: 'all',
@@ -57,7 +55,6 @@ describe('useMonitoringData render stability', () => {
     function Harness() {
       useMonitoringData({
         config: null,
-        modelPrices: EMPTY_MODEL_PRICES,
         apiKeyAliases: EMPTY_API_KEY_ALIASES,
         timeRange: 'today',
         customTimeRange: null,
