@@ -15,12 +15,14 @@ import (
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/datamigration"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/deadletter"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/modelprice"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/providerprice"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/quotacooldown"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/quotasnapshot"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/setting"
 	sqliterepo "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/sqlite"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usageaggregate"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usageevent"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usageeventcost"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usagemonitoring"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usagepricing"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usagerollup"
@@ -47,6 +49,8 @@ type LegacyQuotaSnapshotBackfillResult = quotasnapshot.LegacyBackfillResult
 type ModelPrice = model.ModelPrice
 type ModelPriceContextTier = model.ModelPriceContextTier
 type ModelPriceServiceTier = model.ModelPriceServiceTier
+type ProviderModelPrice = model.ProviderModelPrice
+type ProviderPriceWindow = model.ProviderPriceWindow
 type ModelPriceSyncResult = model.ModelPriceSyncResult
 type ModelUsageStat = model.ModelUsageStat
 type ModelUsageSummary = model.ModelUsageSummary
@@ -108,6 +112,8 @@ type UsagePricingCatchUpResult = usagepricing.CatchUpResult
 type UsagePricingHourlyFilter = usagepricing.HourlyFilter
 type UsagePricingHourlyRow = usagepricing.HourlyRow
 type UsagePricingAccountRow = usagepricing.AccountRow
+type UsageEventCostState = usageeventcost.State
+type UsageEventCostCatchUpResult = usageeventcost.CatchUpResult
 type UsageMonitoringState = usagemonitoring.State
 type UsageMonitoringTimelineHourRow = usagemonitoring.TimelineHourRow
 type UsageMonitoringAPIKeyTimelineHourRow = usagemonitoring.APIKeyTimelineHourRow
@@ -139,6 +145,8 @@ type Store struct {
 	UsageEvents      usageevent.Repository
 	DeadLetters      deadletter.Repository
 	ModelPrices      modelprice.Repository
+	ProviderPrices   providerprice.Repository
+	EventCosts       usageeventcost.Repository
 	APIKeyAliases    apikeyalias.Repository
 	AccountActions   accountaction.Repository
 	CodexInspections codexinspection.Repository
@@ -166,6 +174,8 @@ func New(db *sql.DB, protector ...*security.Protector) *Store {
 		UsageEvents:      usageevent.New(db),
 		DeadLetters:      deadletter.New(db),
 		ModelPrices:      modelprice.New(db),
+		ProviderPrices:   providerprice.New(db),
+		EventCosts:       usageeventcost.New(db),
 		APIKeyAliases:    apikeyalias.New(db),
 		AccountActions:   accountaction.New(db),
 		CodexInspections: codexinspection.New(db),
@@ -279,6 +289,14 @@ func (s *Store) UpsertSyncedModelPrices(ctx context.Context, prices map[string]M
 	s.modelPricesMu.Lock()
 	defer s.modelPricesMu.Unlock()
 	return s.ModelPrices.UpsertSynced(ctx, prices)
+}
+
+func (s *Store) LoadProviderPrices(ctx context.Context) ([]ProviderModelPrice, error) {
+	return s.ProviderPrices.LoadAll(ctx)
+}
+
+func (s *Store) SaveProviderPrices(ctx context.Context, prices []ProviderModelPrice) ([]ProviderModelPrice, error) {
+	return s.ProviderPrices.ReplaceAll(ctx, prices)
 }
 
 // WithModelPriceSnapshot prevents model-price mutations while a service reads
@@ -509,8 +527,53 @@ func (s *Store) CatchUpUsagePricing(ctx context.Context, limit int, nowMS int64)
 	return s.UsagePricing.CatchUp(ctx, limit, nowMS)
 }
 
+// CatchUpUsagePricingUpTo aggregates pricing rollups no further than the
+// event cost coverage so every aggregated event already has its cost row.
+func (s *Store) CatchUpUsagePricingUpTo(ctx context.Context, limit int, nowMS int64, capEventID int64) (UsagePricingCatchUpResult, error) {
+	ready, err := s.UsageCacheAccountingMigrationReady(ctx)
+	if err != nil {
+		return UsagePricingCatchUpResult{}, err
+	}
+	if !ready {
+		return UsagePricingCatchUpResult{Pending: true}, nil
+	}
+	return s.UsagePricing.CatchUpUpTo(ctx, limit, nowMS, capEventID)
+}
+
 func (s *Store) RecordUsagePricingFailure(ctx context.Context, rollupErr error, nowMS int64) error {
 	return s.UsagePricing.RecordFailure(ctx, rollupErr, nowMS)
+}
+
+func (s *Store) CatchUpUsageEventCost(ctx context.Context, limit int, nowMS int64) (UsageEventCostCatchUpResult, error) {
+	ready, err := s.UsageCacheAccountingMigrationReady(ctx)
+	if err != nil {
+		return UsageEventCostCatchUpResult{}, err
+	}
+	if !ready {
+		return UsageEventCostCatchUpResult{Pending: true}, nil
+	}
+	return s.EventCosts.CatchUp(ctx, limit, nowMS)
+}
+
+func (s *Store) RecordUsageEventCostFailure(ctx context.Context, taskErr error, nowMS int64) error {
+	return s.EventCosts.RecordFailure(ctx, taskErr, nowMS)
+}
+
+func (s *Store) UsageEventCostState(ctx context.Context) (UsageEventCostState, error) {
+	return s.EventCosts.State(ctx)
+}
+
+// UsageEventCostCoverage is the highest event id whose stored cost is final.
+func (s *Store) UsageEventCostCoverage(ctx context.Context) (int64, error) {
+	state, err := s.EventCosts.State(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return state.CoverageEventID(), nil
+}
+
+func (s *Store) StartUsageEventCostReprice(ctx context.Context, fromMS, nowMS int64) (UsageEventCostState, error) {
+	return s.EventCosts.StartReprice(ctx, fromMS, nowMS)
 }
 
 func (s *Store) CatchUpUsageMonitoringStats(ctx context.Context, limit int, nowMS int64) (UsageMonitoringCatchUpResult, error) {
@@ -522,6 +585,17 @@ func (s *Store) CatchUpUsageMonitoringStats(ctx context.Context, limit int, nowM
 		return UsageMonitoringCatchUpResult{Pending: true}, nil
 	}
 	return s.UsageMonitoring.CatchUpStats(ctx, limit, nowMS)
+}
+
+func (s *Store) CatchUpUsageMonitoringStatsUpTo(ctx context.Context, limit int, nowMS int64, capEventID int64) (UsageMonitoringCatchUpResult, error) {
+	ready, err := s.UsageCacheAccountingMigrationReady(ctx)
+	if err != nil {
+		return UsageMonitoringCatchUpResult{}, err
+	}
+	if !ready {
+		return UsageMonitoringCatchUpResult{Pending: true}, nil
+	}
+	return s.UsageMonitoring.CatchUpStatsUpTo(ctx, limit, nowMS, capEventID)
 }
 
 func (s *Store) CatchUpUsageMonitoringProjection(ctx context.Context, limit int, nowMS int64) (UsageMonitoringCatchUpResult, error) {

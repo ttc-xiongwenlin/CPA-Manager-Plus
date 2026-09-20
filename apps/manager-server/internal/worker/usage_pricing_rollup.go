@@ -32,12 +32,19 @@ type UsagePricingRollupWorker struct {
 }
 
 const (
-	usageDerivedPricingTask = iota
+	// The event cost task runs first: pricing and stats rollups aggregate only
+	// up to its coverage, so it must lead every round.
+	usageDerivedEventCostTask = iota
+	usageDerivedPricingTask
 	usageDerivedMonitoringProjectionTask
 	usageDerivedMonitoringMetadataTask
 	usageDerivedMonitoringStatsTask
 	usageDerivedTaskCount
 )
+
+// usageDerivedCostDependentTasks aggregate only up to the event cost coverage,
+// so every event cost batch makes them runnable again within the same round.
+var usageDerivedCostDependentTasks = []int{usageDerivedPricingTask, usageDerivedMonitoringStatsTask}
 
 func NewUsagePricingRollupWorker(store *store.Store) *UsagePricingRollupWorker {
 	return &UsagePricingRollupWorker{
@@ -87,6 +94,7 @@ func (w *UsagePricingRollupWorker) catchUp(ctx context.Context) bool {
 
 	pendingByTask := [usageDerivedTaskCount]bool{}
 	idleByTask := [usageDerivedTaskCount]bool{}
+	staleByTask := [usageDerivedTaskCount]bool{}
 	for batch := 0; batch < w.maxBatches; batch++ {
 		if ctx.Err() != nil {
 			return false
@@ -98,6 +106,7 @@ func (w *UsagePricingRollupWorker) catchUp(ctx context.Context) bool {
 		w.nextTask = (task + 1) % usageDerivedTaskCount
 		nowMS := time.Now().UnixMilli()
 		result, err := w.catchUpTask(ctx, task, nowMS)
+		staleByTask[task] = false
 		if err != nil {
 			log.Printf("[usage-derived] %s catch-up failed: %v", usageDerivedTaskName(task), err)
 			if recordErr := w.recordTaskFailure(ctx, task, err, nowMS); recordErr != nil && ctx.Err() == nil {
@@ -112,9 +121,15 @@ func (w *UsagePricingRollupWorker) catchUp(ctx context.Context) bool {
 		if !result.Pending || (result.Processed == 0 && !result.ContinueSoon) {
 			idleByTask[task] = true
 		}
+		if task == usageDerivedEventCostTask && result.Processed > 0 {
+			for _, dependent := range usageDerivedCostDependentTasks {
+				idleByTask[dependent] = false
+				staleByTask[dependent] = true
+			}
+		}
 	}
-	for _, pending := range pendingByTask {
-		if pending {
+	for task := range pendingByTask {
+		if pendingByTask[task] || staleByTask[task] {
 			return true
 		}
 	}
@@ -158,10 +173,21 @@ func (w *UsagePricingRollupWorker) catchUpTask(ctx context.Context, task int, no
 		result, err := w.store.CatchUpUsageMonitoringMetadata(ctx, w.batchLimit, nowMS)
 		return usageDerivedCatchUpResult{Processed: result.Processed, CoverageEventID: result.CoverageEventID, TargetEventID: result.TargetEventID, Pending: result.Pending, Rebuilt: result.Rebuilt, ContinueSoon: result.ContinueSoon}, err
 	case usageDerivedMonitoringStatsTask:
-		result, err := w.store.CatchUpUsageMonitoringStats(ctx, w.batchLimit, nowMS)
+		cap, err := w.store.UsageEventCostCoverage(ctx)
+		if err != nil {
+			return usageDerivedCatchUpResult{}, err
+		}
+		result, err := w.store.CatchUpUsageMonitoringStatsUpTo(ctx, w.batchLimit, nowMS, cap)
 		return usageDerivedCatchUpResult{Processed: result.Processed, CoverageEventID: result.CoverageEventID, TargetEventID: result.TargetEventID, Pending: result.Pending, Rebuilt: result.Rebuilt, ContinueSoon: result.ContinueSoon}, err
+	case usageDerivedEventCostTask:
+		result, err := w.store.CatchUpUsageEventCost(ctx, w.batchLimit, nowMS)
+		return usageDerivedCatchUpResult{Processed: result.Processed, CoverageEventID: result.CoverageEventID, TargetEventID: result.TargetEventID, Pending: result.Pending}, err
 	default:
-		result, err := w.store.CatchUpUsagePricing(ctx, w.batchLimit, nowMS)
+		cap, err := w.store.UsageEventCostCoverage(ctx)
+		if err != nil {
+			return usageDerivedCatchUpResult{}, err
+		}
+		result, err := w.store.CatchUpUsagePricingUpTo(ctx, w.batchLimit, nowMS, cap)
 		return usageDerivedCatchUpResult{Processed: result.Processed, CoverageEventID: result.CoverageEventID, TargetEventID: result.TargetEventID, Pending: result.Pending, Rebuilt: result.Rebuilt, ContinueSoon: result.ContinueSoon}, err
 	}
 }
@@ -196,6 +222,8 @@ func (w *UsagePricingRollupWorker) recordTaskFailure(ctx context.Context, task i
 		return w.store.RecordUsageMonitoringFailure(ctx, monitoringrepo.MetadataRollupName, rollupErr, nowMS)
 	case usageDerivedMonitoringStatsTask:
 		return w.store.RecordUsageMonitoringFailure(ctx, monitoringrepo.StatsRollupName, rollupErr, nowMS)
+	case usageDerivedEventCostTask:
+		return w.store.RecordUsageEventCostFailure(ctx, rollupErr, nowMS)
 	default:
 		return w.store.RecordUsagePricingFailure(ctx, rollupErr, nowMS)
 	}
@@ -209,6 +237,8 @@ func usageDerivedTaskName(task int) string {
 		return "monitoring metadata"
 	case usageDerivedMonitoringStatsTask:
 		return "monitoring stats"
+	case usageDerivedEventCostTask:
+		return "event cost"
 	default:
 		return "pricing"
 	}

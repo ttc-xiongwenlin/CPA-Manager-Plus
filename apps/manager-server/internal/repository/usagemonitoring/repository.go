@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usagepricing"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usageprojection"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/usageidentity"
 )
@@ -23,6 +24,7 @@ var ErrUnsupportedSchema = errors.New("unsupported usage monitoring rollup schem
 type Repository interface {
 	CatchUpProjection(ctx context.Context, limit int, nowMS int64) (CatchUpResult, error)
 	CatchUpStats(ctx context.Context, limit int, nowMS int64) (CatchUpResult, error)
+	CatchUpStatsUpTo(ctx context.Context, limit int, nowMS int64, capEventID int64) (CatchUpResult, error)
 	CatchUpMetadata(ctx context.Context, limit int, nowMS int64) (CatchUpResult, error)
 	RecordFailure(ctx context.Context, rollupName string, rollupErr error, nowMS int64) error
 	State(ctx context.Context, rollupName string) (State, error)
@@ -76,13 +78,20 @@ func New(db *sql.DB) Repository {
 }
 
 func (r *repository) CatchUpProjection(ctx context.Context, limit int, nowMS int64) (CatchUpResult, error) {
-	return r.catchUp(ctx, ProjectionRollupName, limit, nowMS, func(ctx context.Context, tx *sql.Tx, _ string, afterID, throughID, updatedAtMS int64) error {
+	return r.catchUp(ctx, ProjectionRollupName, limit, nowMS, usagepricing.NoEventCap, func(ctx context.Context, tx *sql.Tx, _ string, afterID, throughID, updatedAtMS int64) error {
 		return usageprojection.UpsertEventRange(ctx, tx, afterID, throughID, updatedAtMS)
 	})
 }
 
 func (r *repository) CatchUpStats(ctx context.Context, limit int, nowMS int64) (CatchUpResult, error) {
-	return r.catchUp(ctx, StatsRollupName, limit, nowMS, func(ctx context.Context, tx *sql.Tx, revision string, afterID, throughID, updatedAtMS int64) error {
+	return r.CatchUpStatsUpTo(ctx, limit, nowMS, usagepricing.NoEventCap)
+}
+
+// CatchUpStatsUpTo aggregates the daily stats rollups no further than
+// capEventID, the event cost coverage, for the same reason as
+// usagepricing.CatchUpUpTo.
+func (r *repository) CatchUpStatsUpTo(ctx context.Context, limit int, nowMS int64, capEventID int64) (CatchUpResult, error) {
+	return r.catchUp(ctx, StatsRollupName, limit, nowMS, capEventID, func(ctx context.Context, tx *sql.Tx, revision string, afterID, throughID, updatedAtMS int64) error {
 		if err := upsertAccountDailyBatch(ctx, tx, revision, afterID, throughID, updatedAtMS); err != nil {
 			return err
 		}
@@ -91,7 +100,7 @@ func (r *repository) CatchUpStats(ctx context.Context, limit int, nowMS int64) (
 }
 
 func (r *repository) CatchUpMetadata(ctx context.Context, limit int, nowMS int64) (CatchUpResult, error) {
-	return r.catchUp(ctx, MetadataRollupName, limit, nowMS, func(ctx context.Context, tx *sql.Tx, _ string, afterID, throughID, updatedAtMS int64) error {
+	return r.catchUp(ctx, MetadataRollupName, limit, nowMS, usagepricing.NoEventCap, func(ctx context.Context, tx *sql.Tx, _ string, afterID, throughID, updatedAtMS int64) error {
 		if err := upsertSelectorDailyBatch(ctx, tx, afterID, throughID, updatedAtMS); err != nil {
 			return err
 		}
@@ -106,6 +115,7 @@ func (r *repository) catchUp(
 	rollupName string,
 	limit int,
 	nowMS int64,
+	capEventID int64,
 	upsertBatch batchUpserter,
 ) (CatchUpResult, error) {
 	if limit <= 0 {
@@ -139,6 +149,10 @@ func (r *repository) catchUp(
 	latestID, err := latestEventID(ctx, tx)
 	if err != nil {
 		return CatchUpResult{}, err
+	}
+	storedLatestID := latestID
+	if capEventID >= 0 && latestID > capEventID {
+		latestID = capEventID
 	}
 
 	revision := state.StructureRevision
@@ -215,7 +229,7 @@ func (r *repository) catchUp(
 		if targetID > coverageID {
 			coverageID = targetID
 		}
-		pending := latestID > coverageID
+		pending := storedLatestID > coverageID
 		status := "ready"
 		finishedAt := any(nowMS)
 		if pending {
@@ -250,7 +264,7 @@ func (r *repository) catchUp(
 	if err := upsertBatch(ctx, tx, revision, state.CoverageEventID, lastEventID, nowMS); err != nil {
 		return CatchUpResult{}, err
 	}
-	pending := lastEventID < targetID || latestID > lastEventID
+	pending := lastEventID < targetID || storedLatestID > lastEventID
 	status := "ready"
 	finishedAt := any(nowMS)
 	if lastEventID < targetID && rebuilt {

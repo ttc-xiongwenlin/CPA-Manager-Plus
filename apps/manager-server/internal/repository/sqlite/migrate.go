@@ -978,7 +978,10 @@ func Migrate(db *sql.DB) error {
 	if err := ensureDashboardHourlyRollupFormatVersion(db); err != nil {
 		return err
 	}
-	return ensureModelPriceColumns(db)
+	if err := ensureModelPriceColumns(db); err != nil {
+		return err
+	}
+	return ensureUsageEventCostSchema(db)
 }
 
 func ensureLegacyQuotaSnapshotMigrationState(db *sql.DB) error {

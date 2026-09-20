@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/model"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usageeventcost"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/usage"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/usageidentity"
 )
@@ -18,12 +19,16 @@ const (
 	RollupName    = "pricing_v1"
 	SchemaVersion = 1
 	hourMS        = int64(time.Hour / time.Millisecond)
+	// NoEventCap lets a catch-up aggregate every stored event. Production
+	// callers pass the event cost coverage instead, see CatchUpUpTo.
+	NoEventCap = int64(-1)
 )
 
 var ErrUnsupportedSchema = errors.New("unsupported usage pricing rollup schema")
 
 type Repository interface {
 	CatchUp(ctx context.Context, limit int, nowMS int64) (CatchUpResult, error)
+	CatchUpUpTo(ctx context.Context, limit int, nowMS int64, capEventID int64) (CatchUpResult, error)
 	RecordFailure(ctx context.Context, rollupErr error, nowMS int64) error
 	State(ctx context.Context) (State, error)
 	LoadHourlyRows(ctx context.Context, filter HourlyFilter) ([]HourlyRow, State, bool, error)
@@ -146,6 +151,14 @@ func New(db *sql.DB) Repository {
 }
 
 func (r *repository) CatchUp(ctx context.Context, limit int, nowMS int64) (CatchUpResult, error) {
+	return r.CatchUpUpTo(ctx, limit, nowMS, NoEventCap)
+}
+
+// CatchUpUpTo aggregates events no newer than capEventID. Rollup rows are
+// upserted incrementally and never revisit an event, so the cap must be the
+// event cost coverage: an event aggregated before its cost row exists would
+// keep zero cost forever.
+func (r *repository) CatchUpUpTo(ctx context.Context, limit int, nowMS int64, capEventID int64) (CatchUpResult, error) {
 	if limit <= 0 {
 		limit = 1000
 	}
@@ -182,6 +195,12 @@ func (r *repository) CatchUp(ctx context.Context, limit int, nowMS int64) (Catch
 	latestID, err := latestEventID(ctx, tx)
 	if err != nil {
 		return CatchUpResult{}, err
+	}
+	// storedLatestID keeps the real backlog visible: a capped catch-up still
+	// reports pending so the worker keeps cycling until the cost task catches up.
+	storedLatestID := latestID
+	if capEventID >= 0 && latestID > capEventID {
+		latestID = capEventID
 	}
 	rebuilt := (state.Status == "pending" || state.Status == "rebuilding" || state.Status == "clearing") &&
 		state.CoverageEventID < state.TargetEventID
@@ -245,7 +264,7 @@ func (r *repository) CatchUp(ctx context.Context, limit int, nowMS int64) (Catch
 		if targetEventID > coverageEventID {
 			coverageEventID = targetEventID
 		}
-		pending := latestID > coverageEventID
+		pending := storedLatestID > coverageEventID
 		status := "ready"
 		finishedAt := any(nowMS)
 		if pending {
@@ -290,7 +309,7 @@ func (r *repository) CatchUp(ctx context.Context, limit int, nowMS int64) (Catch
 	if err != nil {
 		return CatchUpResult{}, err
 	}
-	pending := lastEventID < targetEventID || latestID > lastEventID
+	pending := lastEventID < targetEventID || storedLatestID > lastEventID
 	status := "ready"
 	if lastEventID < targetEventID && rebuilt {
 		status = "rebuilding"
@@ -455,6 +474,7 @@ func stateQuery(ctx context.Context, db stateQuerier) (State, error) {
 
 type RowQuerier interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
 func StructureRevision(ctx context.Context, db RowQuerier) (string, error) {
@@ -482,7 +502,15 @@ func StructureRevision(ctx context.Context, db RowQuerier) (string, error) {
 	if err := rows.Err(); err != nil {
 		return "", err
 	}
-	return usageidentity.PricingStructureRevision(model.ModelPriceStructureRevision(prices)), nil
+	revision := usageidentity.PricingStructureRevision(model.ModelPriceStructureRevision(prices))
+	epoch, err := usageeventcost.RepriceEpoch(ctx, db)
+	if err != nil {
+		return "", err
+	}
+	if epoch > 0 {
+		revision += fmt.Sprintf(":reprice-%d", epoch)
+	}
+	return revision, nil
 }
 
 func latestEventID(ctx context.Context, tx *sql.Tx) (int64, error) {

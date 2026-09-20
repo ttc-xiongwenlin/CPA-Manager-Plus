@@ -37,7 +37,7 @@ func TestUsagePricingRollupWorkerCatchUp(t *testing.T) {
 
 	worker := NewUsagePricingRollupWorker(db)
 	worker.batchLimit = 10
-	worker.maxBatches = 4
+	worker.maxBatches = 8
 	if pending := worker.catchUp(ctx); pending {
 		t.Fatal("completed catch-up reported pending work")
 	}
