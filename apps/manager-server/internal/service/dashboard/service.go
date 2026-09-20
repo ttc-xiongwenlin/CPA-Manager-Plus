@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/pricing"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/usagehourly"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/store"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/usage"
@@ -66,6 +65,8 @@ type TodaySummary struct {
 	ReasoningTokens     int64    `json:"reasoning_tokens"`
 	TotalTokens         int64    `json:"total_tokens"`
 	TotalCost           float64  `json:"total_cost"`
+	TotalCostCNY        float64  `json:"total_cost_cny"`
+	UnpricedCalls       int64    `json:"unpriced_calls"`
 	AverageLatencyMS    *float64 `json:"average_latency_ms"`
 	ZeroTokenCalls      int64    `json:"zero_token_calls"`
 }
@@ -82,6 +83,7 @@ type TopModel struct {
 	Calls       int64   `json:"calls"`
 	Tokens      int64   `json:"tokens"`
 	Cost        float64 `json:"cost"`
+	CostCNY     float64 `json:"cost_cny"`
 	SuccessRate float64 `json:"success_rate"`
 }
 
@@ -135,12 +137,14 @@ type TokenMixSegment struct {
 }
 
 type ModelCostRank struct {
-	Model       string  `json:"model"`
-	Calls       int64   `json:"calls"`
-	Tokens      int64   `json:"tokens"`
-	Cost        float64 `json:"cost"`
-	SuccessRate float64 `json:"success_rate"`
-	CostShare   float64 `json:"cost_share"`
+	Model        string  `json:"model"`
+	Calls        int64   `json:"calls"`
+	Tokens       int64   `json:"tokens"`
+	Cost         float64 `json:"cost"`
+	CostCNY      float64 `json:"cost_cny"`
+	SuccessRate  float64 `json:"success_rate"`
+	CostShare    float64 `json:"cost_share"`
+	CostShareCNY float64 `json:"cost_share_cny"`
 }
 
 type ChannelHealth struct {
@@ -155,6 +159,7 @@ type ChannelHealth struct {
 	SuccessRate          float64  `json:"success_rate"`
 	Tokens               int64    `json:"tokens"`
 	Cost                 float64  `json:"cost"`
+	CostCNY              float64  `json:"cost_cny"`
 	AverageLatencyMS     *float64 `json:"average_latency_ms"`
 	Tone                 string   `json:"tone"`
 }
@@ -433,6 +438,8 @@ func buildTodaySummary(agg store.Aggregate, modelStats []store.ModelStat, prices
 		ReasoningTokens:     agg.ReasoningTokens,
 		TotalTokens:         agg.TotalTokens,
 		TotalCost:           totalCost(modelStats, prices),
+		TotalCostCNY:        totalCostTotals(modelStats).CostCNY(),
+		UnpricedCalls:       totalCostTotals(modelStats).UnpricedCalls,
 		AverageLatencyMS:    nullableFloat(agg.AvgLatencyMS.Valid, agg.AvgLatencyMS.Float64),
 		ZeroTokenCalls:      agg.ZeroTokenCalls,
 	}
@@ -456,6 +463,7 @@ func buildTopModels(stats []store.ModelStat, prices map[string]store.ModelPrice)
 			Calls:       stat.Calls,
 			Tokens:      stat.TotalTokens,
 			Cost:        stat.Cost,
+			CostCNY:     stat.CostCNY,
 			SuccessRate: rate(stat.SuccessCalls, stat.Calls),
 		})
 	}
@@ -615,23 +623,33 @@ func buildTokenMix(today TodaySummary) []TokenMixSegment {
 func buildModelCostRank(stats []store.ModelStat, prices map[string]store.ModelPrice, limit int) []ModelCostRank {
 	aggregated := aggregateModelStats(stats, prices)
 	rows := make([]ModelCostRank, 0, len(aggregated))
-	var maxCost float64
+	var maxCost, maxCostCNY float64
 	for _, stat := range aggregated {
 		if stat.Cost > maxCost {
 			maxCost = stat.Cost
+		}
+		if stat.CostCNY > maxCostCNY {
+			maxCostCNY = stat.CostCNY
 		}
 		rows = append(rows, ModelCostRank{
 			Model:       stat.Model,
 			Calls:       stat.Calls,
 			Tokens:      stat.TotalTokens,
 			Cost:        stat.Cost,
+			CostCNY:     stat.CostCNY,
 			SuccessRate: rate(stat.SuccessCalls, stat.Calls),
 		})
 	}
 	for index := range rows {
 		rows[index].CostShare = rateFloat(rows[index].Cost, maxCost)
+		rows[index].CostShareCNY = rateFloat(rows[index].CostCNY, maxCostCNY)
 	}
+	// Real CNY spend ranks first; the USD estimate only orders models that
+	// have no provider rule.
 	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].CostCNY != rows[j].CostCNY {
+			return rows[i].CostCNY > rows[j].CostCNY
+		}
 		if rows[i].Cost != rows[j].Cost {
 			return rows[i].Cost > rows[j].Cost
 		}
@@ -671,6 +689,7 @@ func buildChannelHealth(stats []store.ChannelModelStat, prices map[string]store.
 		entry.row.Failures += stat.FailureCalls
 		entry.row.Tokens += stat.TotalTokens
 		entry.row.Cost += costForChannelStat(stat, prices)
+		entry.row.CostCNY += stat.CostCNY()
 		if stat.AvgLatencyMS.Valid && stat.LatencySamples > 0 {
 			entry.latencySum += stat.AvgLatencyMS.Float64 * float64(stat.LatencySamples)
 			entry.latencyN += stat.LatencySamples
@@ -788,12 +807,21 @@ func totalCost(stats []store.ModelStat, prices map[string]store.ModelPrice) floa
 	return total
 }
 
+func totalCostTotals(stats []store.ModelStat) usage.CostTotals {
+	var totals usage.CostTotals
+	for _, stat := range stats {
+		totals.AddCost(stat.CostTotals)
+	}
+	return totals
+}
+
 type aggregatedModelStat struct {
 	Model        string
 	Calls        int64
 	SuccessCalls int64
 	TotalTokens  int64
 	Cost         float64
+	CostCNY      float64
 }
 
 func aggregateModelStats(stats []store.ModelStat, prices map[string]store.ModelPrice) []aggregatedModelStat {
@@ -810,6 +838,7 @@ func aggregateModelStats(stats []store.ModelStat, prices map[string]store.ModelP
 		entry.SuccessCalls += stat.SuccessCalls
 		entry.TotalTokens += stat.TotalTokens
 		entry.Cost += costForStat(stat, prices)
+		entry.CostCNY += stat.CostCNY()
 	}
 	result := make([]aggregatedModelStat, 0, len(order))
 	for _, model := range order {
@@ -821,38 +850,12 @@ func aggregateModelStats(stats []store.ModelStat, prices map[string]store.ModelP
 	return result
 }
 
-func costForStat(stat store.ModelStat, prices map[string]store.ModelPrice) float64 {
-	return pricing.CostForModelCandidatesWithServiceTier([]string{stat.BillingModel, stat.Model}, stat.ServiceTier, pricing.ModelTokens{
-		PricingModel:            stat.PricingModel,
-		ContextThresholdTokens:  stat.ContextThresholdTokens,
-		InputTokens:             stat.InputTokens,
-		OutputTokens:            stat.OutputTokens,
-		CachedTokens:            stat.CachedTokens,
-		CacheReadTokens:         stat.CacheReadTokens,
-		CacheCreationTokens:     stat.CacheCreationTokens,
-		LongInputTokens:         stat.LongInputTokens,
-		LongOutputTokens:        stat.LongOutputTokens,
-		LongCachedTokens:        stat.LongCachedTokens,
-		LongCacheReadTokens:     stat.LongCacheReadTokens,
-		LongCacheCreationTokens: stat.LongCacheCreationTokens,
-	}, prices)
+func costForStat(stat store.ModelStat, _ map[string]store.ModelPrice) float64 {
+	return stat.CostUSD()
 }
 
-func costForChannelStat(stat store.ChannelModelStat, prices map[string]store.ModelPrice) float64 {
-	return pricing.CostForModelCandidatesWithServiceTier([]string{stat.BillingModel, stat.Model}, stat.ServiceTier, pricing.ModelTokens{
-		PricingModel:            stat.PricingModel,
-		ContextThresholdTokens:  stat.ContextThresholdTokens,
-		InputTokens:             stat.InputTokens,
-		OutputTokens:            stat.OutputTokens,
-		CachedTokens:            stat.CachedTokens,
-		CacheReadTokens:         stat.CacheReadTokens,
-		CacheCreationTokens:     stat.CacheCreationTokens,
-		LongInputTokens:         stat.LongInputTokens,
-		LongOutputTokens:        stat.LongOutputTokens,
-		LongCachedTokens:        stat.LongCachedTokens,
-		LongCacheReadTokens:     stat.LongCacheReadTokens,
-		LongCacheCreationTokens: stat.LongCacheCreationTokens,
-	}, prices)
+func costForChannelStat(stat store.ChannelModelStat, _ map[string]store.ModelPrice) float64 {
+	return stat.CostUSD()
 }
 
 func rate(part, total int64) float64 {

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usageeventcost"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/usage"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/usageidentity"
 )
@@ -177,6 +178,10 @@ func loadEventPageItemsByCandidates(ctx context.Context, tx *sql.Tx, candidates 
 		coalesce(cache_creation_tokens, 0),
 		coalesce(reasoning_tokens, 0),
 		coalesce(total_tokens, 0),
+		coalesce(cost_cny_nanos, 0),
+		coalesce(cost_usd_nanos, 0),
+		coalesce(cost_price_source, ''),
+		coalesce(cost_multiplier, 1),
 		latency_ms,
 		ttft_ms,
 		failed,
@@ -190,6 +195,7 @@ func loadEventPageItemsByCandidates(ctx context.Context, tx *sql.Tx, candidates 
 		coalesce(header_error_code, ''),
 		coalesce(header_trace_id, '')
 	from usage_events
+	`+usageeventcost.JoinSQL("usage_events")+`
 	where id in (select value from json_each(?))
 	order by timestamp_ms desc, id desc`, string(encoded))
 	if err != nil {
@@ -235,6 +241,10 @@ func loadEventPageItemsByCandidates(ctx context.Context, tx *sql.Tx, candidates 
 			&item.CacheCreationTokens,
 			&item.ReasoningTokens,
 			&item.TotalTokens,
+			&item.CostCNYNanos,
+			&item.CostUSDNanos,
+			&item.PriceSource,
+			&item.CostMultiplier,
 			&item.LatencyMS,
 			&item.TTFTMS,
 			&failed,

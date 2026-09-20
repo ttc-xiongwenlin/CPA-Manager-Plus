@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usageeventcost"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usageprojection"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/usage"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/usageidentity"
@@ -32,6 +33,9 @@ var (
 	longCacheReadFExpr      = "case when " + normalizedInputFExpr + " > " + longContextThresholdSQL + " then f.cache_read_tokens else 0 end"
 	longCacheCreationFExpr  = "case when " + normalizedInputFExpr + " > " + longContextThresholdSQL + " then f.cache_creation_tokens else 0 end"
 	credentialIDExpr        = "coalesce(nullif(auth_file_snapshot, ''), nullif(auth_index, ''), nullif(source_hash, ''), nullif(source, ''), '-')"
+	// costRowExpr reads one event's stored cost in usage.CostTotals field order
+	// for readers that bucket rows in Go; aggregate readers use usageeventcost.SumSQL.
+	costRowExpr = "coalesce(cost_cny_nanos, 0), coalesce(cost_usd_nanos, 0), case when cost_price_source is null or cost_price_source = 'none' then 1 else 0 end"
 )
 
 type AnalyticsFilter struct {
@@ -569,7 +573,8 @@ select
 	coalesce(sum(` + longCachedExpr + `), 0),
 	coalesce(sum(` + longCacheReadExpr + `), 0),
 	coalesce(sum(` + longCacheCreationExpr + `), 0),
-	coalesce(sum(total_tokens), 0)
+	coalesce(sum(total_tokens), 0),
+	` + usageeventcost.SumSQL + `
 from banded_usage_events ` + where + `
 group by analytics_model_value, billing_model, pricing_model_value, context_threshold_tokens_value, coalesce(service_tier, '')
 order by calls desc`
@@ -603,7 +608,8 @@ select
 	coalesce(sum(` + longCachedFExpr + `), 0),
 	coalesce(sum(` + longCacheReadFExpr + `), 0),
 	coalesce(sum(` + longCacheCreationFExpr + `), 0),
-	coalesce(sum(f.total_tokens), 0)
+	coalesce(sum(f.total_tokens), 0),
+	` + usageeventcost.SumSQL + `
 from filtered f
 join top_models t on t.model = f.analytics_model_value
 group by f.analytics_model_value, billing_model, f.pricing_model_value, f.context_threshold_tokens_value, coalesce(f.service_tier, '')
@@ -639,6 +645,9 @@ order by max(t.model_calls) desc, f.analytics_model_value, calls desc`
 			&stat.LongCacheReadTokens,
 			&stat.LongCacheCreationTokens,
 			&stat.TotalTokens,
+			&stat.CostCNYNanos,
+			&stat.CostUSDNanos,
+			&stat.UnpricedCalls,
 		); err != nil {
 			return nil, err
 		}
@@ -665,7 +674,8 @@ select
 	cache_read_tokens,
 	cache_creation_tokens,
 	total_tokens,
-	latency_ms
+	latency_ms,
+	`+costRowExpr+`
 from banded_usage_events %s
 order by timestamp_ms, analytics_model_value`, where)
 	rows, err := r.db.QueryContext(ctx, query, args...)
@@ -700,6 +710,7 @@ order by timestamp_ms, analytics_model_value`, where)
 		var cacheReadTokens int64
 		var cacheCreationTokens int64
 		var totalTokens int64
+		var cost usage.CostTotals
 		if err := rows.Scan(
 			&timestampMS,
 			&model,
@@ -716,6 +727,9 @@ order by timestamp_ms, analytics_model_value`, where)
 			&cacheCreationTokens,
 			&totalTokens,
 			&latency,
+			&cost.CostCNYNanos,
+			&cost.CostUSDNanos,
+			&cost.UnpricedCalls,
 		); err != nil {
 			return nil, err
 		}
@@ -756,6 +770,7 @@ order by timestamp_ms, analytics_model_value`, where)
 		point.CacheReadTokens += cacheReadTokens
 		point.CacheCreationTokens += cacheCreationTokens
 		point.AddIfLongContext(inputTokens, outputTokens, cachedTokens, cacheReadTokens, cacheCreationTokens)
+		point.AddCost(cost)
 		if latency.Valid && latency.Float64 > 0 {
 			point.AvgLatencyMS.Float64 += latency.Float64
 			point.LatencySamples += 1
@@ -798,7 +813,8 @@ select
 	cache_read_tokens,
 	cache_creation_tokens,
 	total_tokens,
-	latency_ms
+	latency_ms,
+	`+costRowExpr+`
 from banded_usage_events %s
 order by timestamp_ms, api_key_hash, analytics_model_value`, where)
 	rows, err := r.db.QueryContext(ctx, query, args...)
@@ -841,6 +857,9 @@ order by timestamp_ms, api_key_hash, analytics_model_value`, where)
 			&point.CacheCreationTokens,
 			&totalTokens,
 			&latency,
+			&point.CostCNYNanos,
+			&point.CostUSDNanos,
+			&point.UnpricedCalls,
 		); err != nil {
 			return nil, err
 		}
@@ -880,6 +899,7 @@ order by timestamp_ms, api_key_hash, analytics_model_value`, where)
 		entry.CacheReadTokens += point.CacheReadTokens
 		entry.CacheCreationTokens += point.CacheCreationTokens
 		entry.AddIfLongContext(point.InputTokens, point.OutputTokens, point.CachedTokens, point.CacheReadTokens, point.CacheCreationTokens)
+		entry.AddCost(point.CostTotals)
 		if latency.Valid && latency.Float64 > 0 {
 			entry.AvgLatencyMS.Float64 += latency.Float64
 			entry.LatencySamples += 1
@@ -1315,7 +1335,8 @@ select
 	`+compatCachedExpr+`,
 	cache_read_tokens,
 	cache_creation_tokens,
-	total_tokens
+	total_tokens,
+	`+costRowExpr+`
 from banded_usage_events `+where+`
 order by timestamp_ms, model`, args...)
 	if err != nil {
@@ -1355,6 +1376,7 @@ order by timestamp_ms, model`, args...)
 		var cacheReadTokens int64
 		var cacheCreationTokens int64
 		var totalTokens int64
+		var cost usage.CostTotals
 		if err := rows.Scan(
 			&timestampMS,
 			&model,
@@ -1371,6 +1393,9 @@ order by timestamp_ms, model`, args...)
 			&cacheReadTokens,
 			&cacheCreationTokens,
 			&totalTokens,
+			&cost.CostCNYNanos,
+			&cost.CostUSDNanos,
+			&cost.UnpricedCalls,
 		); err != nil {
 			return nil, err
 		}
@@ -1417,6 +1442,7 @@ order by timestamp_ms, model`, args...)
 		point.CacheCreationTokens += cacheCreationTokens
 		point.AddIfLongContext(inputTokens, outputTokens, cachedTokens, cacheReadTokens, cacheCreationTokens)
 		point.TotalTokens += totalTokens
+		point.AddCost(cost)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -1458,7 +1484,8 @@ select
 	coalesce(sum(`+longCacheCreationExpr+`), 0),
 	coalesce(sum(total_tokens), 0),
 	avg(nullif(latency_ms, 0)),
-	count(nullif(latency_ms, 0))
+	count(nullif(latency_ms, 0)),
+	`+usageeventcost.SumSQL+`
 from banded_usage_events `+where+`
 group by auth_index, analytics_model_value, billing_model, pricing_model_value, context_threshold_tokens_value, coalesce(service_tier, '')
 order by count(*) desc`, args...)
@@ -1498,6 +1525,9 @@ order by count(*) desc`, args...)
 			&stat.TotalTokens,
 			&stat.AvgLatencyMS,
 			&stat.LatencySamples,
+			&stat.CostCNYNanos,
+			&stat.CostUSDNanos,
+			&stat.UnpricedCalls,
 		); err != nil {
 			return nil, err
 		}
@@ -1835,7 +1865,8 @@ select
 	max(timestamp_ms),
 	coalesce(sum(case when latency_ms is not null and latency_ms != 0 then latency_ms else 0 end), 0),
 	avg(nullif(latency_ms, 0)),
-	count(nullif(latency_ms, 0))
+	count(nullif(latency_ms, 0)),
+	`+usageeventcost.SumSQL+`
 from banded_usage_events `+where+`
 group by account_snapshot, auth_label_snapshot, coalesce(nullif(auth_provider_snapshot, ''), provider, ''), auth_account_id_snapshot, auth_index, source_hash, analytics_model_value, billing_model, pricing_model_value, context_threshold_tokens_value, coalesce(service_tier, '')
 order by max(timestamp_ms) desc, count(*) desc`, args...)
@@ -1880,6 +1911,9 @@ order by max(timestamp_ms) desc, count(*) desc`, args...)
 			&stat.LatencySumMS,
 			&stat.AvgLatencyMS,
 			&stat.LatencySamples,
+			&stat.CostCNYNanos,
+			&stat.CostUSDNanos,
+			&stat.UnpricedCalls,
 		); err != nil {
 			return nil, err
 		}
@@ -1934,7 +1968,8 @@ select
 	coalesce(sum(`+longCacheReadExpr+`), 0),
 	coalesce(sum(`+longCacheCreationExpr+`), 0),
 	coalesce(sum(e.total_tokens), 0),
-	max(e.timestamp_ms)
+	max(e.timestamp_ms),
+	`+usageeventcost.SumSQL+`
 from window_targets w
 	join banded_usage_events e
 		on e.timestamp_ms >= w.from_ms
@@ -1972,6 +2007,9 @@ order by w.request_index, max(e.timestamp_ms) desc`, args...)
 			&stat.LongCacheCreationTokens,
 			&stat.TotalTokens,
 			&stat.LastSeenMS,
+			&stat.CostCNYNanos,
+			&stat.CostUSDNanos,
+			&stat.UnpricedCalls,
 		); err != nil {
 			return nil, err
 		}
@@ -2051,7 +2089,8 @@ select
 	coalesce(sum(total_tokens), 0),
 	max(timestamp_ms),
 	avg(nullif(latency_ms, 0)),
-	count(nullif(latency_ms, 0))
+	count(nullif(latency_ms, 0)),
+	`+usageeventcost.SumSQL+`
 from banded_usage_events `+where+`
 	group by credential_id, auth_file_snapshot, auth_index, source_hash, analytics_model_value, billing_model, pricing_model_value, context_threshold_tokens_value, coalesce(service_tier, '')
 order by max(timestamp_ms) desc, count(*) desc`, args...)
@@ -2096,6 +2135,9 @@ order by max(timestamp_ms) desc, count(*) desc`, args...)
 			&stat.LastSeenMS,
 			&stat.AvgLatencyMS,
 			&stat.LatencySamples,
+			&stat.CostCNYNanos,
+			&stat.CostUSDNanos,
+			&stat.UnpricedCalls,
 		); err != nil {
 			return nil, err
 		}
@@ -2172,7 +2214,8 @@ select
 	cache_read_tokens,
 	cache_creation_tokens,
 	total_tokens,
-	latency_ms
+	latency_ms,
+	`+costRowExpr+`
 from banded_usage_events %s
 	order by timestamp_ms, credential_id, analytics_model_value`, where)
 	rows, err := r.db.QueryContext(ctx, query, args...)
@@ -2227,6 +2270,9 @@ from banded_usage_events %s
 			&point.CacheCreationTokens,
 			&totalTokens,
 			&latency,
+			&point.CostCNYNanos,
+			&point.CostUSDNanos,
+			&point.UnpricedCalls,
 		); err != nil {
 			return nil, err
 		}
@@ -2283,6 +2329,7 @@ from banded_usage_events %s
 		entry.CacheReadTokens += point.CacheReadTokens
 		entry.CacheCreationTokens += point.CacheCreationTokens
 		entry.AddIfLongContext(point.InputTokens, point.OutputTokens, point.CachedTokens, point.CacheReadTokens, point.CacheCreationTokens)
+		entry.AddCost(point.CostTotals)
 		if latency.Valid && latency.Float64 > 0 {
 			entry.AvgLatencyMS.Float64 += latency.Float64
 			entry.LatencySamples += 1
@@ -2358,7 +2405,8 @@ func (r *repository) credentialTimelineHourlyWithFilter(ctx context.Context, fil
 	coalesce(sum(` + longCacheReadExpr + `), 0),
 	coalesce(sum(` + longCacheCreationExpr + `), 0),
 	avg(case when latency_ms > 0 then latency_ms end),
-	count(case when latency_ms > 0 then 1 end)
+	count(case when latency_ms > 0 then 1 end),
+	` + usageeventcost.SumSQL + `
 ` + queryFrom + where + `
 group by ` + bucketExpr + `, credential_id,
 	coalesce(auth_file_snapshot, ''), coalesce(auth_index, ''), coalesce(source, ''), coalesce(source_hash, ''),
@@ -2410,6 +2458,9 @@ group by ` + bucketExpr + `, credential_id,
 			&point.LongCacheCreationTokens,
 			&point.AvgLatencyMS,
 			&point.LatencySamples,
+			&point.CostCNYNanos,
+			&point.CostUSDNanos,
+			&point.UnpricedCalls,
 		); err != nil {
 			return nil, err
 		}
@@ -2531,6 +2582,7 @@ func mergeCredentialTimelineParts(parts [][]CredentialTimelinePoint) []Credentia
 			entry.LongCachedTokens += point.LongCachedTokens
 			entry.LongCacheReadTokens += point.LongCacheReadTokens
 			entry.LongCacheCreationTokens += point.LongCacheCreationTokens
+			entry.AddCost(point.CostTotals)
 			entry.LatencySamples += point.LatencySamples
 			entry.AvgLatencyMS.Valid = entry.LatencySamples > 0
 			if entry.AvgLatencyMS.Valid {
@@ -2578,7 +2630,8 @@ select
 	coalesce(sum(total_tokens), 0),
 	max(timestamp_ms),
 	avg(nullif(latency_ms, 0)),
-	count(nullif(latency_ms, 0))
+	count(nullif(latency_ms, 0)),
+	`+usageeventcost.SumSQL+`
 from banded_usage_events `+where+`
 group by api_key_hash, account_snapshot, auth_label_snapshot, coalesce(nullif(auth_provider_snapshot, ''), provider, ''), auth_account_id_snapshot, auth_index, source_hash, analytics_model_value, billing_model, pricing_model_value, context_threshold_tokens_value, coalesce(service_tier, '')
 order by max(timestamp_ms) desc, count(*) desc`, args...)
@@ -2621,6 +2674,9 @@ order by max(timestamp_ms) desc, count(*) desc`, args...)
 			&stat.LastSeenMS,
 			&stat.AvgLatencyMS,
 			&stat.LatencySamples,
+			&stat.CostCNYNanos,
+			&stat.CostUSDNanos,
+			&stat.UnpricedCalls,
 		); err != nil {
 			return nil, err
 		}
@@ -2835,6 +2891,10 @@ func (r *repository) EventsPageWithFilter(ctx context.Context, filter AnalyticsF
 	cache_creation_tokens,
 	reasoning_tokens,
 	total_tokens,
+	coalesce(cost_cny_nanos, 0),
+	coalesce(cost_usd_nanos, 0),
+	coalesce(cost_price_source, ''),
+	coalesce(cost_multiplier, 1),
 	latency_ms,
 	ttft_ms,
 	failed,
@@ -2847,7 +2907,9 @@ func (r *repository) EventsPageWithFilter(ctx context.Context, filter AnalyticsF
 	coalesce(header_error_kind, ''),
 	coalesce(header_error_code, ''),
 	coalesce(header_trace_id, '')
-from usage_events `+where+`
+from usage_events
+`+usageeventcost.JoinSQL("usage_events")+`
+`+where+`
 order by timestamp_ms desc, id desc
 limit ?`, args...)
 	if err != nil {
@@ -2896,6 +2958,10 @@ limit ?`, args...)
 			&item.CacheCreationTokens,
 			&item.ReasoningTokens,
 			&item.TotalTokens,
+			&item.CostCNYNanos,
+			&item.CostUSDNanos,
+			&item.PriceSource,
+			&item.CostMultiplier,
 			&item.LatencyMS,
 			&item.TTFTMS,
 			&failed,

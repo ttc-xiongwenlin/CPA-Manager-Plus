@@ -82,6 +82,16 @@ type Repository interface {
 	RecordFailure(ctx context.Context, taskErr error, nowMS int64) error
 	State(ctx context.Context) (State, error)
 	StartReprice(ctx context.Context, fromMS, nowMS int64) (State, error)
+	ObservedProviderModels(ctx context.Context, sinceMS int64) ([]ObservedProviderModel, error)
+}
+
+// ObservedProviderModel is a provider/model pair seen in priced events, so the
+// price editor can offer the exact keys a rule must use.
+type ObservedProviderModel struct {
+	Provider   string
+	Model      string
+	Calls      int64
+	LastSeenMS int64
 }
 
 type repository struct {
@@ -341,6 +351,36 @@ func (r *repository) StartReprice(ctx context.Context, fromMS, nowMS int64) (Sta
 	}
 	state.LatestEventID = latestID
 	return state, tx.Commit()
+}
+
+// ObservedProviderModels groups priced events since sinceMS by provider and
+// pricing model. It walks the cost table by event id from the first event at
+// or after sinceMS, so it needs no extra index.
+func (r *repository) ObservedProviderModels(ctx context.Context, sinceMS int64) ([]ObservedProviderModel, error) {
+	firstID, err := firstEventIDAtOrAfter(ctx, r.db, sinceMS)
+	if err != nil {
+		return nil, err
+	}
+	if firstID == 0 {
+		return []ObservedProviderModel{}, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `select cost_provider, cost_pricing_model, count(*), max(cost_ts_ms)
+		from `+Table+` where event_id >= ? and cost_provider <> '' and cost_pricing_model <> ''
+		group by cost_provider, cost_pricing_model
+		order by count(*) desc, cost_provider, cost_pricing_model`, firstID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]ObservedProviderModel, 0)
+	for rows.Next() {
+		var item ObservedProviderModel
+		if err := rows.Scan(&item.Provider, &item.Model, &item.Calls, &item.LastSeenMS); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
 }
 
 func stateQuery(ctx context.Context, db RowQuerier) (State, error) {

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/model"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usageeventcost"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/usage"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/usageidentity"
 )
@@ -292,7 +293,8 @@ func mergeStoredAccountStats(
 		sum(total_tokens),
 		max(last_seen_ms),
 		sum(latency_sum_ms),
-		sum(latency_samples)
+		sum(latency_samples),
+		sum(cost_cny_nanos), sum(cost_usd_nanos), sum(unpriced_calls)
 	from usage_monitoring_account_daily_rollups_v1
 	where `+strings.Join(conditions, " and ")+`
 	group by account_snapshot, auth_label_snapshot,
@@ -327,7 +329,8 @@ func mergeProjectedAccountStats(
 		p.requested_model as model, p.analytics_model, p.resolved_model, p.service_tier, p.failed,
 		p.normalized_total_input_tokens, p.output_tokens, p.cached_tokens,
 		p.cache_tokens, p.cache_read_tokens, p.cache_creation_tokens,
-		p.total_tokens, p.latency_ms`,
+		p.total_tokens, p.latency_ms,
+		`+usageeventcost.PassthroughColumnsSQL,
 		`e.timestamp_ms, coalesce(e.account_snapshot, ''), coalesce(e.auth_label_snapshot, ''),
 		coalesce(e.provider, ''), coalesce(e.auth_provider_snapshot, ''), coalesce(e.auth_account_id_snapshot, ''),
 		coalesce(e.auth_index, ''), coalesce(e.source, ''),
@@ -339,7 +342,8 @@ func mergeProjectedAccountStats(
 		coalesce(e.output_tokens, 0), coalesce(e.cached_tokens, 0),
 		coalesce(e.cache_tokens, 0), coalesce(e.cache_read_tokens, 0),
 		coalesce(e.cache_creation_tokens, 0), coalesce(e.total_tokens, 0),
-		e.latency_ms`,
+		e.latency_ms,
+		`+usageeventcost.PassthroughColumnsSQL,
 		eventSourceOptions{
 			AfterID:            afterID,
 			UseAfter:           useAfterID,
@@ -378,7 +382,8 @@ func mergeProjectedAccountStats(
 		coalesce(sum(total_tokens), 0),
 		max(timestamp_ms),
 		coalesce(sum(case when latency_ms is not null and latency_ms != 0 then latency_ms else 0 end), 0),
-		count(nullif(latency_ms, 0))
+		count(nullif(latency_ms, 0)),
+		` + usageeventcost.SumSQL + `
 	from banded_events
 	group by account_snapshot, auth_label_snapshot,
 		coalesce(nullif(auth_provider_snapshot, ''), provider, ''), auth_account_id_snapshot, auth_index,
@@ -432,7 +437,8 @@ func mergeStoredAPIKeyStats(
 		sum(total_tokens),
 		max(last_seen_ms),
 		sum(latency_sum_ms),
-		sum(latency_samples)
+		sum(latency_samples),
+		sum(cost_cny_nanos), sum(cost_usd_nanos), sum(unpriced_calls)
 	from usage_monitoring_api_key_daily_rollups_v1
 	where `+strings.Join(conditions, " and ")+`
 	group by api_key_hash, account_snapshot, auth_label_snapshot,
@@ -467,7 +473,8 @@ func mergeProjectedAPIKeyStats(
 		p.source_hash, p.requested_model as model, p.analytics_model, p.resolved_model, p.service_tier, p.failed,
 		p.normalized_total_input_tokens, p.output_tokens, p.cached_tokens,
 		p.cache_tokens, p.cache_read_tokens, p.cache_creation_tokens,
-		p.total_tokens, p.latency_ms`,
+		p.total_tokens, p.latency_ms,
+		`+usageeventcost.PassthroughColumnsSQL,
 		`e.timestamp_ms, coalesce(e.api_key_hash, ''), coalesce(e.account_snapshot, ''),
 		coalesce(e.auth_label_snapshot, ''), coalesce(e.provider, ''),
 		coalesce(e.auth_provider_snapshot, ''), coalesce(e.auth_account_id_snapshot, ''), coalesce(e.auth_index, ''),
@@ -478,7 +485,8 @@ func mergeProjectedAPIKeyStats(
 		coalesce(e.output_tokens, 0), coalesce(e.cached_tokens, 0),
 		coalesce(e.cache_tokens, 0), coalesce(e.cache_read_tokens, 0),
 		coalesce(e.cache_creation_tokens, 0), coalesce(e.total_tokens, 0),
-		e.latency_ms`,
+		e.latency_ms,
+		`+usageeventcost.PassthroughColumnsSQL,
 		eventSourceOptions{
 			AfterID:            afterID,
 			UseAfter:           useAfterID,
@@ -516,7 +524,8 @@ func mergeProjectedAPIKeyStats(
 		coalesce(sum(total_tokens), 0),
 		max(timestamp_ms),
 		coalesce(sum(case when latency_ms is not null and latency_ms != 0 then latency_ms else 0 end), 0),
-		count(nullif(latency_ms, 0))
+		count(nullif(latency_ms, 0)),
+		` + usageeventcost.SumSQL + `
 	from banded_events
 	group by api_key_hash, account_snapshot, auth_label_snapshot,
 		coalesce(nullif(auth_provider_snapshot, ''), provider, ''), auth_account_id_snapshot, auth_index,
@@ -572,6 +581,9 @@ func scanAccountStats(rows *sql.Rows, grouped map[accountStatKey]*accountStatAcc
 			&row.LastSeenMS,
 			&latencySumMS,
 			&row.LatencySamples,
+			&row.CostCNYNanos,
+			&row.CostUSDNanos,
+			&row.UnpricedCalls,
 		); err != nil {
 			return err
 		}
@@ -616,6 +628,9 @@ func scanAPIKeyStats(rows *sql.Rows, grouped map[apiKeyStatKey]*apiKeyStatAccumu
 			&row.LastSeenMS,
 			&latencySumMS,
 			&row.LatencySamples,
+			&row.CostCNYNanos,
+			&row.CostUSDNanos,
+			&row.UnpricedCalls,
 		); err != nil {
 			return err
 		}
@@ -700,6 +715,7 @@ func mergeAccountValues(target *AccountModelStat, row AccountModelStat) {
 	target.TotalTokens += row.TotalTokens
 	target.LatencySumMS += row.LatencySumMS
 	target.LatencySamples += row.LatencySamples
+	target.AddCost(row.CostTotals)
 	if row.LastSeenMS > target.LastSeenMS {
 		target.LastSeenMS = row.LastSeenMS
 	}
@@ -727,6 +743,7 @@ func mergeAPIKeyValues(target *APIKeyModelStat, row APIKeyModelStat) {
 	target.LongCacheCreationTokens += row.LongCacheCreationTokens
 	target.TotalTokens += row.TotalTokens
 	target.LatencySamples += row.LatencySamples
+	target.AddCost(row.CostTotals)
 	if row.LastSeenMS > target.LastSeenMS {
 		target.LastSeenMS = row.LastSeenMS
 	}

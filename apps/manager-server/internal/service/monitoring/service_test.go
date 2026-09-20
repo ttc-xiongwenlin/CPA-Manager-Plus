@@ -123,7 +123,7 @@ func TestAnalyticsBuildsIncludedSections(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("save model prices: %v", err)
 	}
-	_, err := db.InsertEvents(ctx, []usage.Event{
+	_, err := insertPricedEvents(ctx, db, []usage.Event{
 		monitoringEvent("analytics-a", fromMS+1_000, "gpt-a", "auth-1", "source-a", false, 1_000_000, 500_000, 0, 100, 1_500_100, &latency),
 		monitoringEvent("analytics-b", fromMS+2_000, "gpt-b", "auth-2", "source-b", true, 10, 20, 0, 0, 30, nil),
 		monitoringEvent("analytics-outside", toMS, "gpt-a", "auth-1", "source-a", false, 1, 1, 0, 0, 2, nil),
@@ -221,7 +221,7 @@ func TestAnalyticsHeatmapIncludesTopContributors(t *testing.T) {
 	second.AuthProviderSnapshot = "openai"
 	third := monitoringEvent("heatmap-contrib-b1", fromMS+3_000, "gpt-b", "auth-2", "source-b", false, 1_000_000, 0, 0, 0, 1_000_000, nil)
 	third.Provider = "anthropic"
-	if _, err := db.InsertEvents(ctx, []usage.Event{first, second, third}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{first, second, third}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -282,7 +282,7 @@ func TestAnalyticsCredentialTimelineBuildsPerCredentialBuckets(t *testing.T) {
 	third := monitoringEvent("credential-timeline-b1", fromMS+60*60*1000+2_000, "gpt-a", "auth-2", "source-b", false, 3_000_000, 0, 0, 0, 3_000_000, nil)
 	third.AuthFileSnapshot = "dev.json"
 	third.AuthLabelSnapshot = "dev-auth"
-	if _, err := db.InsertEvents(ctx, []usage.Event{first, second, third}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{first, second, third}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -329,7 +329,7 @@ func TestAnalyticsAPIKeyTimelineBuildsExactPerKeyBuckets(t *testing.T) {
 	second := monitoringEvent("api-key-timeline-a2", fromMS+2_000, "gpt-a", "auth-1", "source-a", true, 2_000_000, 0, 0, 0, 2_000_000, nil)
 	third := monitoringEvent("api-key-timeline-b1", fromMS+60*60*1000+1_000, "gpt-a", "auth-2", "source-b", false, 3_000_000, 0, 0, 0, 3_000_000, nil)
 	excluded := monitoringEvent("api-key-timeline-c1", fromMS+60*60*1000+2_000, "gpt-a", "auth-3", "source-c", false, 4_000_000, 0, 0, 0, 4_000_000, nil)
-	if _, err := db.InsertEvents(ctx, []usage.Event{first, second, third, excluded}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{first, second, third, excluded}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -383,7 +383,7 @@ func TestAnalyticsSummaryComparisonReturnsPreviousPeriod(t *testing.T) {
 	prevFrom := fromMS - windowMS
 
 	// Current window: 2 calls. Previous window: 3 calls (2 success, 1 failure).
-	if _, err := db.InsertEvents(ctx, []usage.Event{
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{
 		monitoringEvent("cur-1", fromMS+1_000, "gpt-a", "auth-1", "src-a", false, 100, 50, 0, 0, 150, nil),
 		monitoringEvent("cur-2", fromMS+2_000, "gpt-a", "auth-1", "src-a", false, 100, 50, 0, 0, 150, nil),
 		monitoringEvent("prev-1", prevFrom+1_000, "gpt-a", "auth-1", "src-a", false, 1_000, 500, 0, 0, 1_500, nil),
@@ -462,7 +462,7 @@ func TestAnalyticsCompactSummaryPreservesCoreAndSkipsFullMetrics(t *testing.T) {
 	second.TTFTMS = &latency300
 	previous := monitoringEvent("compact-previous", prevFromMS+1_000, "gpt-a", "auth-1", "src-a", false, 200, 100, 10, 0, 310, &latency300)
 	previous.TTFTMS = &latency300
-	if _, err := db.InsertEvents(ctx, []usage.Event{first, second, previous}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{first, second, previous}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -644,7 +644,7 @@ func TestModelCacheHitRateUsesBillingModelBeforeAliasAggregation(t *testing.T) {
 	}
 
 	models := map[string]*AccountModelStatRow{}
-	addAccountModelStat(models, "internal-fast", "openai/gpt-5.6-sol", 1, 1, 0, 100, 0, 0, 90, 0, 100, 0, 1)
+	addAccountModelStat(models, "internal-fast", "openai/gpt-5.6-sol", 1, 1, 0, 100, 0, 0, 90, 0, 100, 0, 0, 1)
 	if model := models["internal-fast"]; model == nil || model.CacheHitInputTokens != 100 ||
 		math.Abs(model.CacheHitRate-0.9) > 1e-9 {
 		t.Fatalf("account model cache hit metrics = %#v", model)
@@ -670,7 +670,7 @@ func TestAnalyticsExposesCPA7118UsageFields(t *testing.T) {
 	event.FailBody = "rate limit exceeded"
 	event.FailSummary = "rate limit exceeded"
 
-	if _, err := db.InsertEvents(ctx, []usage.Event{event}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{event}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -722,7 +722,7 @@ func TestAnalyticsKeepsCompatCachedSeparateFromFineGrainedCache(t *testing.T) {
 	event := monitoringEvent("claude-cache-mirror", fromMS+1_000, "claude-sonnet", "auth-1", "source-a", false, 100, 20, 0, 500, 120, nil)
 	event.CacheReadTokens = 500
 
-	if _, err := db.InsertEvents(ctx, []usage.Event{event}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{event}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -767,7 +767,7 @@ func TestAnalyticsDoesNotExposeOrSearchRawFailBody(t *testing.T) {
 	event.FailBody = "upstream stack raw-secret-marker sk-test-secret-value"
 	event.FailSummary = "upstream stack [redacted]"
 
-	if _, err := db.InsertEvents(ctx, []usage.Event{event}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{event}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -818,7 +818,7 @@ func TestAnalyticsUsesResolvedModelPricingInAggregates(t *testing.T) {
 	first.ResolvedModel = "gpt-resolved-a"
 	second := monitoringEvent("resolved-cost-b", fromMS+2_000, "alias-fast", "auth-1", "source-a", false, 0, 1_000_000, 0, 0, 1_000_000, nil)
 	second.ResolvedModel = "gpt-resolved-b"
-	if _, err := db.InsertEvents(ctx, []usage.Event{first, second}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{first, second}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -875,7 +875,7 @@ func TestAnalyticsFallsBackToRequestedModelPriceWhenResolvedPriceIsMissing(t *te
 	event := monitoringEvent("alias-fallback-cost", fromMS+1_000, "GLM-5.2", "auth-1", "source-a", false, 1_000_000, 0, 0, 0, 1_000_000, nil)
 	event.RequestedModel = "GLM-5.2"
 	event.ResolvedModel = "zai/glm-5.2"
-	if _, err := db.InsertEvents(ctx, []usage.Event{event}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{event}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -944,7 +944,7 @@ func TestAnalyticsPricesPriorityAndDefaultServiceTiersSeparately(t *testing.T) {
 	priority.AccountSnapshot = "team@example.com"
 	priority.AuthLabelSnapshot = "Team"
 	priority.APIKeyHash = "client-key"
-	if _, err := db.InsertEvents(ctx, []usage.Event{standard, standardSecond, priority}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{standard, standardSecond, priority}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -1042,7 +1042,7 @@ func TestAnalyticsFilteredPricingUsesStrictHighestContextTier(t *testing.T) {
 		events[index].AuthLabelSnapshot = "Tier Team"
 		events[index].APIKeyHash = "tier-client-key"
 	}
-	if _, err := db.InsertEvents(ctx, events); err != nil {
+	if _, err := insertPricedEvents(ctx, db, events); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -1115,7 +1115,7 @@ func TestAnalyticsPricesGPT56LongContextPerRequest(t *testing.T) {
 		event.AuthLabelSnapshot = "Team"
 		event.APIKeyHash = "client-key"
 	}
-	if _, err := db.InsertEvents(ctx, []usage.Event{short, long}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{short, long}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -1166,7 +1166,7 @@ func TestAnalyticsAppliesFilters(t *testing.T) {
 	toMS := fromMS + 60*60*1000
 	includeFailed := false
 
-	_, err := db.InsertEvents(ctx, []usage.Event{
+	_, err := insertPricedEvents(ctx, db, []usage.Event{
 		monitoringEvent("filter-a", fromMS+1_000, "gpt-a", "auth-1", "source-a", false, 1, 1, 0, 0, 2, nil),
 		monitoringEvent("filter-b", fromMS+2_000, "gpt-a", "auth-1", "source-a", true, 1, 1, 0, 0, 2, nil),
 		monitoringEvent("filter-c", fromMS+3_000, "gpt-b", "auth-2", "source-b", false, 1, 1, 0, 0, 2, nil),
@@ -1244,7 +1244,7 @@ func TestAnalyticsAccountAndAPIKeyStatsUseFullFilteredScope(t *testing.T) {
 		events[index].AuthProviderSnapshot = "codex"
 		events[index].APIKeyHash = "client-key-hash"
 	}
-	if _, err := db.InsertEvents(ctx, events); err != nil {
+	if _, err := insertPricedEvents(ctx, db, events); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -1304,7 +1304,7 @@ func TestAnalyticsSearchMatchesResolvedModelAndProjectID(t *testing.T) {
 	event.RequestID = "req-search-42"
 	event.ResolvedModel = "gpt-resolved-search"
 	event.AuthProjectIDSnapshot = "vertex-project-42"
-	if _, err := db.InsertEvents(ctx, []usage.Event{event}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{event}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -1340,7 +1340,7 @@ func TestAnalyticsSearchMatchesAccountSnapshotsWhenSourceIsMasked(t *testing.T) 
 	bob.AccountSnapshot = "alina.team@example.com"
 	bob.AuthLabelSnapshot = "Alina Work Account"
 	bob.AuthFileSnapshot = "alina.json"
-	if _, err := db.InsertEvents(ctx, []usage.Event{alice, bob}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{alice, bob}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -1369,7 +1369,7 @@ func TestAnalyticsReportsZeroTokenModels(t *testing.T) {
 	fromMS := int64(1_778_000_000_000)
 	toMS := fromMS + 60*60*1000
 
-	_, err := db.InsertEvents(ctx, []usage.Event{
+	_, err := insertPricedEvents(ctx, db, []usage.Event{
 		monitoringEvent("zero-a", fromMS+1_000, "gpt-zero", "auth-1", "source-a", false, 0, 0, 0, 0, 0, nil),
 		monitoringEvent("zero-b", fromMS+2_000, "gpt-failed-zero", "auth-1", "source-a", true, 0, 0, 0, 0, 0, nil),
 		monitoringEvent("zero-c", fromMS+3_000, "gpt-nonzero", "auth-1", "source-a", false, 1, 1, 0, 0, 2, nil),
@@ -1399,7 +1399,7 @@ func TestAnalyticsAppliesMinLatencyFilter(t *testing.T) {
 	fastLatency := int64(2_000)
 	slowLatency := int64(12_000)
 
-	_, err := db.InsertEvents(ctx, []usage.Event{
+	_, err := insertPricedEvents(ctx, db, []usage.Event{
 		monitoringEvent("latency-fast", fromMS+1_000, "gpt-fast", "auth-1", "source-a", false, 1, 1, 0, 0, 2, &fastLatency),
 		monitoringEvent("latency-slow", fromMS+2_000, "gpt-slow", "auth-1", "source-a", false, 1, 1, 0, 0, 2, &slowLatency),
 		monitoringEvent("latency-unknown", fromMS+3_000, "gpt-unknown", "auth-1", "source-a", false, 1, 1, 0, 0, 2, nil),
@@ -1437,7 +1437,7 @@ func TestAnalyticsAppliesCacheStatusFilter(t *testing.T) {
 	cacheCreation.CacheCreationTokens = 3
 	legacyCached := monitoringEvent("cache-legacy", fromMS+3_000, "gpt-c", "auth-1", "source-a", false, 10, 5, 0, 2, 17, nil)
 	cacheMiss := monitoringEvent("cache-miss", fromMS+4_000, "gpt-d", "auth-1", "source-a", false, 10, 5, 0, 0, 15, nil)
-	if _, err := db.InsertEvents(ctx, []usage.Event{cacheRead, cacheCreation, legacyCached, cacheMiss}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{cacheRead, cacheCreation, legacyCached, cacheMiss}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -1483,7 +1483,7 @@ func TestAnalyticsAppliesFailedOnlyFilter(t *testing.T) {
 	fromMS := int64(1_778_100_000_000)
 	toMS := fromMS + 60*60*1000
 
-	_, err := db.InsertEvents(ctx, []usage.Event{
+	_, err := insertPricedEvents(ctx, db, []usage.Event{
 		monitoringEvent("status-a", fromMS+1_000, "gpt-ok", "auth-1", "source-a", false, 10, 5, 0, 0, 15, nil),
 		monitoringEvent("status-b", fromMS+2_000, "gpt-failed", "auth-1", "source-a", true, 1, 1, 0, 0, 2, nil),
 	})
@@ -1523,7 +1523,7 @@ func TestAnalyticsAppliesAccountFallbackFilter(t *testing.T) {
 	bob.AuthLabelSnapshot = "Bob Auth"
 	bob.Source = "bob-source"
 
-	if _, err := db.InsertEvents(ctx, []usage.Event{alice, bob}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{alice, bob}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -1580,7 +1580,7 @@ func TestAnalyticsUnfilteredFullResponseKeepsFilterOptionStatsInSync(t *testing.
 	bob.AuthLabelSnapshot = "Bob Auth"
 	bob.AuthProviderSnapshot = "gemini"
 	bob.APIKeyHash = "key-bob"
-	if _, err := db.InsertEvents(ctx, []usage.Event{alice, bob}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{alice, bob}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -1639,7 +1639,7 @@ func TestChannelModelStatsFromAccountStatsMatchesRawAggregation(t *testing.T) {
 	third.AuthLabelSnapshot = "Carol"
 	third.Provider = "codex"
 	third.AuthProviderSnapshot = "codex"
-	if _, err := db.InsertEvents(ctx, []usage.Event{first, second, third}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{first, second, third}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -1687,7 +1687,7 @@ func TestAnalyticsFilterOptionsIgnoreActiveScopeFilters(t *testing.T) {
 	bob.AuthProviderSnapshot = "gemini"
 	bob.APIKeyHash = "key-bob"
 
-	if _, err := db.InsertEvents(ctx, []usage.Event{alice, bob}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{alice, bob}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -1764,7 +1764,7 @@ func TestAnalyticsFilterSelectorsReturnLightweightOptions(t *testing.T) {
 	sourceHashOnly.APIKeyHash = ""
 	sourceHashOnly.Source = ""
 
-	if _, err := db.InsertEvents(ctx, []usage.Event{alice, bob, sourceOnly, sourceOnlyRotated, sourceHashOnly}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{alice, bob, sourceOnly, sourceOnlyRotated, sourceHashOnly}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -1853,7 +1853,7 @@ func TestAnalyticsEventsPageReportsTotalCountWhilePaging(t *testing.T) {
 			"gpt-a", "auth-1", "source-a", false, 1, 1, 0, 0, 2, nil,
 		))
 	}
-	if _, err := db.InsertEvents(ctx, events); err != nil {
+	if _, err := insertPricedEvents(ctx, db, events); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -1916,7 +1916,7 @@ func TestAnalyticsEventsPageUsesNormalizedTotalInput(t *testing.T) {
 			ExecutorType: "ClaudeExecutor", Model: "claude-sonnet", InputTokens: 100, CacheReadTokens: 40, OutputTokens: 20, CreatedAtMS: fromMS + 2,
 		},
 	}
-	if _, err := db.InsertEvents(ctx, events); err != nil {
+	if _, err := insertPricedEvents(ctx, db, events); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -1955,7 +1955,7 @@ func TestAnalyticsEventsPageTotalCountRespectsFilters(t *testing.T) {
 	for i := range 3 {
 		events = append(events, monitoringEvent(fmt.Sprintf("fail-%d", i), fromMS+int64(100+i)*1_000, "gpt-b", "auth-2", "source-b", true, 1, 1, 0, 0, 2, nil))
 	}
-	if _, err := db.InsertEvents(ctx, events); err != nil {
+	if _, err := insertPricedEvents(ctx, db, events); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -2000,7 +2000,7 @@ func TestAnalyticsEventsPageStableCursorAvoidsSkippingSameTimestamp(t *testing.T
 	for i := range total {
 		events = append(events, monitoringEvent(fmt.Sprintf("same-ts-%02d", i), sharedTS, "gpt-a", "auth-1", "source-a", false, 1, 1, 0, 0, 2, nil))
 	}
-	if _, err := db.InsertEvents(ctx, events); err != nil {
+	if _, err := insertPricedEvents(ctx, db, events); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -2059,7 +2059,7 @@ func TestAnalyticsTimelineUsesRequestedTimeZoneForDayBuckets(t *testing.T) {
 	fromMS := time.Date(2026, 6, 3, 14, 0, 0, 0, time.UTC).UnixMilli()
 	toMS := time.Date(2026, 6, 3, 18, 0, 0, 0, time.UTC).UnixMilli()
 
-	if _, err := db.InsertEvents(ctx, []usage.Event{
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{
 		monitoringEvent("local-day-a", beforeLocalMidnightMS, "gpt-a", "auth-1", "source-a", false, 10, 5, 0, 0, 15, nil),
 		monitoringEvent("local-day-b", afterLocalMidnightMS, "gpt-a", "auth-1", "source-a", false, 20, 10, 0, 0, 30, nil),
 	}); err != nil {
@@ -2102,7 +2102,7 @@ func TestAnalyticsSummaryAndHourlyDistributionUseRequestedTimeZone(t *testing.T)
 	fromMS := time.Date(2026, 6, 3, 22, 0, 0, 0, time.UTC).UnixMilli()
 	toMS := time.Date(2026, 6, 4, 2, 0, 0, 0, time.UTC).UnixMilli()
 
-	if _, err := db.InsertEvents(ctx, []usage.Event{
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{
 		monitoringEvent("local-summary-a", firstMS, "gpt-a", "auth-1", "source-a", false, 10, 5, 0, 0, 15, nil),
 		monitoringEvent("local-summary-b", secondMS, "gpt-a", "auth-1", "source-a", false, 20, 10, 0, 0, 30, nil),
 	}); err != nil {
@@ -2167,7 +2167,7 @@ func TestAccountHistoryReturnsRollupTotalsAndCost(t *testing.T) {
 	second.AccountSnapshot = "hist@example.com"
 	second.Source = "hist@example.com"
 	second.AuthFileSnapshot = "history.json"
-	if _, err := db.InsertEvents(ctx, []usage.Event{first, second}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{first, second}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -2238,7 +2238,7 @@ func TestAccountHistorySeparatesSharedAccountAndStructuredIdentityOverridesLegac
 	second.AuthFileSnapshot = "shared.json"
 	second.AuthProviderSnapshot = "openai"
 	second.AccountSnapshot = "same@example.com"
-	if _, err := db.InsertEvents(ctx, []usage.Event{first, second}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{first, second}); err != nil {
 		t.Fatalf("insert shared-account events: %v", err)
 	}
 
@@ -2317,7 +2317,7 @@ func TestAccountHistoryPricesContextTierBands(t *testing.T) {
 		events[index].AuthFileSnapshot = "tier-history.json"
 		events[index].AuthProviderSnapshot = "openai"
 	}
-	if _, err := db.InsertEvents(ctx, events); err != nil {
+	if _, err := insertPricedEvents(ctx, db, events); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -2355,7 +2355,7 @@ func TestAccountHistoryEmptyTargetDoesNotMatchAnonymousBucket(t *testing.T) {
 	event.AuthLabelSnapshot = ""
 	event.Source = ""
 	event.AuthIndex = ""
-	if _, err := db.InsertEvents(ctx, []usage.Event{event}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{event}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -2426,7 +2426,7 @@ func TestAccountHistoryIncludesLatestCredentialRequestWithoutExposingRawFailureD
 		events = append(events, historical)
 	}
 
-	if _, err := db.InsertEvents(ctx, events); err != nil {
+	if _, err := insertPricedEvents(ctx, db, events); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -2508,7 +2508,7 @@ func TestAccountWindowUsageReturnsWindowScopedTotalsAndComputedCost(t *testing.T
 	outside.ResolvedModel = "resolved-a"
 	outside.AccountSnapshot = "quota@example.com"
 	outside.AuthFileSnapshot = "codex.json"
-	if _, err := db.InsertEvents(ctx, []usage.Event{first, second, outside}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{first, second, outside}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -2611,7 +2611,7 @@ func TestAccountWindowUsageSeparatesCredentialsSharingEmailAndAuthIndex(t *testi
 	second.AuthFileSnapshot = "second.json"
 	second.AuthProviderSnapshot = "codex"
 	second.AuthProjectIDSnapshot = "project-b"
-	if _, err := db.InsertEvents(ctx, []usage.Event{first, second}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{first, second}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -2671,7 +2671,7 @@ func TestAccountWindowUsageSeparatesPeriodsAndAppliesModelScopeAcrossOverlapping
 	}
 	events[2].Model = "gemini-alias"
 	events[2].ResolvedModel = "gemini-2.5-pro"
-	if _, err := db.InsertEvents(ctx, events); err != nil {
+	if _, err := insertPricedEvents(ctx, db, events); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -2792,7 +2792,7 @@ func TestAccountWindowUsageIsolatesCodexMainSparkAndUnknownFeatureScopes(t *test
 		events[index].AuthFileSnapshot = "codex.json"
 		events[index].AuthProviderSnapshot = "codex"
 	}
-	if _, err := db.InsertEvents(ctx, events); err != nil {
+	if _, err := insertPricedEvents(ctx, db, events); err != nil {
 		t.Fatalf("insert scoped Codex events: %v", err)
 	}
 
@@ -2852,7 +2852,7 @@ func TestAccountWindowUsagePrefersResolvedBillingIdentityOverSparkShapedRequestA
 	event.AccountSnapshot = "reverse-alias@example.com"
 	event.AuthFileSnapshot = "codex.json"
 	event.AuthProviderSnapshot = "codex"
-	if _, err := db.InsertEvents(ctx, []usage.Event{event}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{event}); err != nil {
 		t.Fatalf("insert reverse alias event: %v", err)
 	}
 
@@ -2899,7 +2899,7 @@ func TestAccountWindowUsageCanonicalizesReasoningSuffixScopeAndPreservesRawPrice
 		events[index].AuthFileSnapshot = "reasoning-scope.json"
 		events[index].AuthProviderSnapshot = "openai"
 	}
-	if _, err := db.InsertEvents(ctx, events); err != nil {
+	if _, err := insertPricedEvents(ctx, db, events); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -2978,7 +2978,7 @@ func TestAccountWindowUsagePricesContextLongContextAndServiceTierBands(t *testin
 		event.AccountSnapshot = "quota-bands@example.com"
 		event.AuthFileSnapshot = "codex.json"
 	}
-	if _, err := db.InsertEvents(ctx, []usage.Event{contextTier, standardTier, priorityTier, longContext}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{contextTier, standardTier, priorityTier, longContext}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -3041,7 +3041,7 @@ func TestAnalyticsHourlyRollupMatchesRawCoreComparisonAndTimeline(t *testing.T) 
 	}
 	events[0].ResolvedModel = "resolved-a"
 	events[2].ResolvedModel = "resolved-a"
-	if _, err := db.InsertEvents(ctx, events); err != nil {
+	if _, err := insertPricedEvents(ctx, db, events); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -3078,6 +3078,7 @@ func TestAnalyticsHourlyRollupMatchesRawCoreComparisonAndTimeline(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("update prices: %v", err)
 	}
+	repriceAllForTest(t, ctx, db)
 	repricedRaw, err := New(db, false).Analytics(ctx, req)
 	if err != nil {
 		t.Fatalf("repriced raw analytics: %v", err)
@@ -3107,11 +3108,11 @@ func TestAnalyticsHourlyRollupMatchesRawForModelAndOutcomeFilters(t *testing.T) 
 		monitoringEvent("filtered-full-success-b", fromMS+2*time.Hour.Milliseconds(), "model-b", "auth-b", "source-b", false, 30, 3, 0, 0, 33, &latency),
 		monitoringEvent("filtered-edge-failed-b", toMS-time.Minute.Milliseconds(), "model-b", "auth-b", "source-b", true, 40, 4, 0, 0, 44, &latency),
 	}
-	if _, err := db.InsertEvents(ctx, events); err != nil {
+	if _, err := insertPricedEvents(ctx, db, events); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 	catchUpMonitoringHourlyRollup(t, ctx, db)
-	if _, err := db.InsertEvents(ctx, []usage.Event{
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{
 		monitoringEvent("filtered-late-success-a", fromMS+90*time.Minute.Milliseconds(), "model-a", "auth-a", "source-a", false, 50, 5, 0, 0, 55, &latency),
 	}); err != nil {
 		t.Fatalf("insert late event: %v", err)
@@ -3182,7 +3183,7 @@ func TestAnalyticsHourlyRollupTimelineMatchesRawAcrossDST(t *testing.T) {
 			&latency,
 		))
 	}
-	if _, err := db.InsertEvents(ctx, events); err != nil {
+	if _, err := insertPricedEvents(ctx, db, events); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 	catchUpMonitoringHourlyRollup(t, ctx, db)
@@ -3240,7 +3241,7 @@ func TestAnalyticsHourlyRollupTimelineMatchesRawAcrossDSTFallBack(t *testing.T) 
 			&latency,
 		))
 	}
-	if _, err := db.InsertEvents(ctx, events); err != nil {
+	if _, err := insertPricedEvents(ctx, db, events); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 	catchUpMonitoringHourlyRollup(t, ctx, db)
@@ -3417,7 +3418,7 @@ func TestAnalyticsBusinessOutcomeFoldsRetries(t *testing.T) {
 		event.RequestID = requestID
 		return event
 	}
-	if _, err := db.InsertEvents(ctx, []usage.Event{
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{
 		// Failed attempt rescued by a retry: one rescued business request.
 		withRequestID(monitoringEvent("bo-r1-a1", hourA+10_000, "gpt-a", "auth-1", "source-a", true, 10, 0, 0, 0, 10, nil), "req-1"),
 		withRequestID(monitoringEvent("bo-r1-a2", hourA+20_000, "gpt-a", "auth-2", "source-a", false, 10, 5, 0, 0, 15, nil), "req-1"),
@@ -3495,7 +3496,7 @@ func TestAnalyticsBusinessOutcomeUnavailableWithoutIndex(t *testing.T) {
 	ctx := context.Background()
 	// No startup maintenance: a freshly deployed production server runs
 	// before cleanup-derived has created the covering index.
-	if _, err := db.InsertEvents(ctx, []usage.Event{
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{
 		monitoringEvent("bo-noindex", 1_778_000_000_000, "gpt-a", "auth-1", "source-a", false, 10, 5, 0, 0, 15, nil),
 	}); err != nil {
 		t.Fatalf("insert events: %v", err)
@@ -3512,4 +3513,42 @@ func TestAnalyticsBusinessOutcomeUnavailableWithoutIndex(t *testing.T) {
 	if resp.BusinessOutcome != nil {
 		t.Fatalf("business outcome = %#v, want nil while the index is missing", resp.BusinessOutcome)
 	}
+}
+
+// insertPricedEvents inserts events and prices them the way the derived
+// worker does in production, so cost assertions read stored cost.
+func insertPricedEvents(ctx context.Context, db *store.Store, events []usage.Event) (store.InsertResult, error) {
+	result, err := db.InsertEvents(ctx, events)
+	if err != nil {
+		return result, err
+	}
+	for {
+		progress, err := db.CatchUpUsageEventCost(ctx, 1000, time.Now().UnixMilli())
+		if err != nil {
+			return result, err
+		}
+		if !progress.Pending {
+			return result, nil
+		}
+	}
+}
+
+// repriceAllForTest mirrors the manual "重算成本" action: stored cost is frozen
+// at ingest, so a price change only reaches history through a reprice and the
+// rollup rebuild it triggers.
+func repriceAllForTest(t *testing.T, ctx context.Context, db *store.Store) {
+	t.Helper()
+	if _, err := db.StartUsageEventCostReprice(ctx, 0, time.Now().UnixMilli()); err != nil {
+		t.Fatalf("start reprice: %v", err)
+	}
+	for {
+		progress, err := db.CatchUpUsageEventCost(ctx, 1000, time.Now().UnixMilli())
+		if err != nil {
+			t.Fatalf("reprice catch-up: %v", err)
+		}
+		if !progress.Pending {
+			break
+		}
+	}
+	catchUpMonitoringHourlyRollup(t, ctx, db)
 }

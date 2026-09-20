@@ -64,7 +64,7 @@ func TestSummaryAggregatesCostsAndWindows(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("save prices: %v", err)
 	}
-	_, err := db.InsertEvents(ctx, []usage.Event{
+	_, err := insertPricedEvents(ctx, db, []usage.Event{
 		dashboardEvent("event-a-1", todayStart+10*60*1000, "gpt-a", false, 1_000_000, 500_000, 0, 250_000, 0, 1_500_000, &latency100),
 		dashboardEvent("event-b-1", todayStart+50*60*1000, "gpt-b", true, 0, 100, 0, 0, 0, 100, &latency200),
 		dashboardEvent("event-a-2", todayStart+55*60*1000, "gpt-a", false, 0, 0, 0, 0, 0, 0, nil),
@@ -268,7 +268,7 @@ func TestSummaryUsesResolvedModelPricing(t *testing.T) {
 	first.ResolvedModel = "gpt-resolved-a"
 	second := dashboardEvent("dashboard-resolved-b", todayStart+2_000, "alias-fast", false, 0, 1_000_000, 0, 0, 0, 1_000_000, nil)
 	second.ResolvedModel = "gpt-resolved-b"
-	if _, err := db.InsertEvents(ctx, []usage.Event{first, second}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{first, second}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -313,7 +313,7 @@ func TestSummaryFallsBackToRequestedModelPriceWhenResolvedPriceIsMissing(t *test
 	event := dashboardEvent("dashboard-alias-fallback-cost", todayStart+1_000, "GLM-5.2", false, 1_000_000, 0, 0, 0, 0, 1_000_000, nil)
 	event.RequestedModel = "GLM-5.2"
 	event.ResolvedModel = "zai/glm-5.2"
-	if _, err := db.InsertEvents(ctx, []usage.Event{event}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{event}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -364,7 +364,7 @@ func TestSummaryPricesPriorityAndDefaultServiceTiersSeparately(t *testing.T) {
 	standardSecond.ServiceTier = "default"
 	priority := dashboardEvent("dashboard-tier-priority", todayStart+2_000, "gpt-5.4", false, 1_000_000, 0, 0, 0, 0, 1_000_000, &latency1000)
 	priority.ServiceTier = "priority"
-	if _, err := db.InsertEvents(ctx, []usage.Event{standard, standardSecond, priority}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{standard, standardSecond, priority}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -434,7 +434,7 @@ func TestSummaryPricesContextTiersAcrossRawAndPricingRollup(t *testing.T) {
 	for index := range events {
 		events[index].ResolvedModel = "tiered-resolved"
 	}
-	if _, err := db.InsertEvents(ctx, events); err != nil {
+	if _, err := insertPricedEvents(ctx, db, events); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -509,7 +509,7 @@ func TestSummaryDashboardHourlyRollupMatchesRawWithTrailingEdge(t *testing.T) {
 	second := dashboardEvent("dashboard-rollup-second", todayStart+hourWindowMs+20*60*1000, "alias-a", true, 0, 500_000, 0, 0, 0, 500_000, &latency300)
 	second.ResolvedModel = "resolved-a"
 	trailing := dashboardEvent("dashboard-rollup-trailing", todayStart+2*hourWindowMs+10*60*1000, "alias-b", false, 10, 20, 0, 0, 0, 30, nil)
-	if _, err := db.InsertEvents(ctx, []usage.Event{first, second, trailing}); err != nil {
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{first, second, trailing}); err != nil {
 		t.Fatalf("insert events: %v", err)
 	}
 
@@ -537,6 +537,7 @@ func TestSummaryDashboardHourlyRollupMatchesRawWithTrailingEdge(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("update prices: %v", err)
 	}
+	repriceAllForTest(t, ctx, db)
 	repriced, err := New(db).Summary(ctx, SummaryParams{TodayStartMS: todayStart, NowMS: nowMS, TopModels: 5, RecentFailures: 5})
 	if err != nil {
 		t.Fatalf("repriced summary: %v", err)
@@ -553,7 +554,7 @@ func TestSummaryDashboardHourlyRollupKeepsOffsetTimelineCorrect(t *testing.T) {
 	todayStart := utcHour + 30*60*1000
 	nowMS := todayStart + 2*hourWindowMs + 15*60*1000
 
-	if _, err := db.InsertEvents(ctx, []usage.Event{
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{
 		dashboardEvent("dashboard-offset-first", todayStart+10*60*1000, "gpt-a", false, 10, 0, 0, 0, 0, 10, nil),
 		dashboardEvent("dashboard-offset-second", todayStart+70*60*1000, "gpt-b", false, 20, 0, 0, 0, 0, 20, nil),
 		dashboardEvent("dashboard-offset-third", todayStart+130*60*1000, "gpt-c", true, 30, 0, 0, 0, 0, 30, nil),
@@ -579,13 +580,13 @@ func TestSummaryDashboardHourlyRollupMergesPendingRawDelta(t *testing.T) {
 	ctx := context.Background()
 	todayStart := int64(1_800_000_000_000)
 	nowMS := todayStart + 2*hourWindowMs
-	if _, err := db.InsertEvents(ctx, []usage.Event{
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{
 		dashboardEvent("dashboard-pending-first", todayStart+1_000, "gpt-a", false, 1, 0, 0, 0, 0, 1, nil),
 	}); err != nil {
 		t.Fatalf("insert first event: %v", err)
 	}
 	catchUpDashboardHourlyForTest(t, ctx, db)
-	if _, err := db.InsertEvents(ctx, []usage.Event{
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{
 		dashboardEvent("dashboard-pending-second", todayStart+hourWindowMs+1_000, "gpt-b", false, 2, 0, 0, 0, 0, 2, nil),
 	}); err != nil {
 		t.Fatalf("insert pending event: %v", err)
@@ -608,7 +609,7 @@ func TestSummaryDashboardHourlyRollupCanBeDisabled(t *testing.T) {
 	ctx := context.Background()
 	todayStart := int64(1_800_000_000_000)
 	nowMS := todayStart + 2*hourWindowMs
-	if _, err := db.InsertEvents(ctx, []usage.Event{
+	if _, err := insertPricedEvents(ctx, db, []usage.Event{
 		dashboardEvent("dashboard-disabled", todayStart+1_000, "gpt-a", false, 5, 0, 0, 0, 0, 5, nil),
 	}); err != nil {
 		t.Fatalf("insert event: %v", err)
@@ -699,4 +700,42 @@ func dashboardEvent(
 		FailSummary:     "upstream rate limit",
 		CreatedAtMS:     timestampMS,
 	}
+}
+
+// insertPricedEvents inserts events and prices them the way the derived
+// worker does in production, so cost assertions read stored cost.
+func insertPricedEvents(ctx context.Context, db *store.Store, events []usage.Event) (store.InsertResult, error) {
+	result, err := db.InsertEvents(ctx, events)
+	if err != nil {
+		return result, err
+	}
+	for {
+		progress, err := db.CatchUpUsageEventCost(ctx, 1000, time.Now().UnixMilli())
+		if err != nil {
+			return result, err
+		}
+		if !progress.Pending {
+			return result, nil
+		}
+	}
+}
+
+// repriceAllForTest mirrors the manual "重算成本" action: stored cost is frozen
+// at ingest, so a price change only reaches history through a reprice and the
+// rollup rebuild it triggers.
+func repriceAllForTest(t *testing.T, ctx context.Context, db *store.Store) {
+	t.Helper()
+	if _, err := db.StartUsageEventCostReprice(ctx, 0, time.Now().UnixMilli()); err != nil {
+		t.Fatalf("start reprice: %v", err)
+	}
+	for {
+		progress, err := db.CatchUpUsageEventCost(ctx, 1000, time.Now().UnixMilli())
+		if err != nil {
+			t.Fatalf("reprice catch-up: %v", err)
+		}
+		if !progress.Pending {
+			break
+		}
+	}
+	catchUpDashboardHourlyForTest(t, ctx, db)
 }

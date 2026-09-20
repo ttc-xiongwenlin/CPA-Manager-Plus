@@ -267,6 +267,8 @@ type AccountHistoryItem struct {
 	FailureCalls   int64                  `json:"failure_calls"`
 	TotalTokens    int64                  `json:"total_tokens"`
 	TotalCost      float64                `json:"total_cost"`
+	TotalCostCNY   float64                `json:"total_cost_cny"`
+	UnpricedCalls  int64                  `json:"unpriced_calls"`
 	SuccessRate    *float64               `json:"success_rate"`
 	FirstSeenMS    *int64                 `json:"first_seen_ms"`
 	LastSeenMS     *int64                 `json:"last_seen_ms"`
@@ -389,6 +391,8 @@ type AccountWindowUsageItem struct {
 	FailureCalls      int64    `json:"failure_calls"`
 	TotalTokens       int64    `json:"total_tokens"`
 	TotalCost         float64  `json:"total_cost"`
+	TotalCostCNY      float64  `json:"total_cost_cny"`
+	UnpricedCalls     int64    `json:"unpriced_calls"`
 	SuccessRate       *float64 `json:"success_rate"`
 	LastSeenMS        *int64   `json:"last_seen_ms"`
 	SyncStatus        string   `json:"sync_status"`
@@ -410,7 +414,10 @@ type Summary struct {
 	ReasoningTokens       int64    `json:"reasoning_tokens"`
 	TotalTokens           int64    `json:"total_tokens"`
 	TotalCost             float64  `json:"total_cost"`
+	TotalCostCNY          float64  `json:"total_cost_cny"`
+	UnpricedCalls         int64    `json:"unpriced_calls"`
 	AverageCostPerCall    float64  `json:"average_cost_per_call"`
+	AverageCostPerCallCNY float64  `json:"average_cost_per_call_cny"`
 	AverageLatencyMS      *float64 `json:"average_latency_ms"`
 	P95LatencyMS          *float64 `json:"p95_latency_ms"`
 	P95TTFTMS             *float64 `json:"p95_ttft_ms"`
@@ -438,6 +445,7 @@ type SummaryComparison struct {
 	SuccessRate  float64 `json:"success_rate"`
 	TotalTokens  int64   `json:"total_tokens"`
 	TotalCost    float64 `json:"total_cost"`
+	TotalCostCNY float64 `json:"total_cost_cny"`
 }
 
 type TimelinePoint struct {
@@ -456,6 +464,7 @@ type TimelinePoint struct {
 	ReasoningTokens     int64    `json:"reasoning_tokens"`
 	TotalTokens         int64    `json:"total_tokens"`
 	Cost                float64  `json:"cost"`
+	CostCNY             float64  `json:"cost_cny"`
 	AvgLatencyMS        *float64 `json:"average_latency_ms"`
 	P95LatencyMS        *float64 `json:"p95_latency_ms"`
 	P95TTFTMS           *float64 `json:"p95_ttft_ms"`
@@ -503,6 +512,7 @@ type HeatmapPoint struct {
 	Failure              int64                `json:"failure"`
 	Tokens               int64                `json:"tokens"`
 	Cost                 float64              `json:"cost"`
+	CostCNY              float64              `json:"cost_cny"`
 	FailureRate          float64              `json:"failure_rate"`
 	ModelContributors    []HeatmapContributor `json:"model_contributors,omitempty"`
 	APIKeyContributors   []HeatmapContributor `json:"api_key_contributors,omitempty"`
@@ -517,6 +527,7 @@ type HeatmapContributor struct {
 	Failure     int64   `json:"failure"`
 	Tokens      int64   `json:"tokens"`
 	Cost        float64 `json:"cost"`
+	CostCNY     float64 `json:"cost_cny"`
 	FailureRate float64 `json:"failure_rate"`
 	Share       float64 `json:"share"`
 }
@@ -530,9 +541,11 @@ type AnomalyPoint struct {
 	Calls                  int64    `json:"calls"`
 	TotalTokens            int64    `json:"total_tokens"`
 	Cost                   float64  `json:"cost"`
+	CostCNY                float64  `json:"cost_cny"`
 	FailureRate            float64  `json:"failure_rate"`
 	RequestChange          float64  `json:"request_change"`
 	CostChange             float64  `json:"cost_change"`
+	CostChangeCNY          float64  `json:"cost_change_cny"`
 	TokensPerRequestChange float64  `json:"tokens_per_request_change"`
 	CacheHitRateChange     float64  `json:"cache_hit_rate_change"`
 	FailureRateChange      float64  `json:"failure_rate_change"`
@@ -540,10 +553,11 @@ type AnomalyPoint struct {
 }
 
 type ModelShareRow struct {
-	Model  string  `json:"model"`
-	Calls  int64   `json:"calls"`
-	Tokens int64   `json:"tokens"`
-	Cost   float64 `json:"cost"`
+	Model   string  `json:"model"`
+	Calls   int64   `json:"calls"`
+	Tokens  int64   `json:"tokens"`
+	Cost    float64 `json:"cost"`
+	CostCNY float64 `json:"cost_cny"`
 }
 
 type ModelStat struct {
@@ -562,6 +576,8 @@ type ModelStat struct {
 	CacheHitRate        float64 `json:"cache_hit_rate"`
 	TotalTokens         int64   `json:"total_tokens"`
 	Cost                float64 `json:"cost"`
+	CostCNY             float64 `json:"cost_cny"`
+	UnpricedCalls       int64   `json:"unpriced_calls"`
 }
 
 type ChannelShareRow struct {
@@ -576,6 +592,7 @@ type ChannelShareRow struct {
 	Failure               int64    `json:"failure"`
 	Tokens                int64    `json:"tokens"`
 	Cost                  float64  `json:"cost"`
+	CostCNY               float64  `json:"cost_cny"`
 	AvgLatencyMS          *float64 `json:"average_latency_ms"`
 }
 
@@ -611,6 +628,7 @@ type AccountStatRow struct {
 	CacheCreationTokens  int64                 `json:"cache_creation_tokens"`
 	TotalTokens          int64                 `json:"total_tokens"`
 	Cost                 float64               `json:"cost"`
+	CostCNY              float64               `json:"cost_cny"`
 	AvgLatencyMS         *float64              `json:"average_latency_ms"`
 	LastSeenMS           int64                 `json:"last_seen_ms"`
 	Models               []AccountModelStatRow `json:"models,omitempty"`
@@ -638,6 +656,7 @@ type CredentialStatRow struct {
 	CacheCreationTokens   int64                 `json:"cache_creation_tokens"`
 	TotalTokens           int64                 `json:"total_tokens"`
 	Cost                  float64               `json:"cost"`
+	CostCNY               float64               `json:"cost_cny"`
 	AvgLatencyMS          *float64              `json:"average_latency_ms"`
 	LastSeenMS            int64                 `json:"last_seen_ms"`
 	Models                []AccountModelStatRow `json:"models,omitempty"`
@@ -669,6 +688,7 @@ type CredentialTimelinePoint struct {
 	ReasoningTokens       int64    `json:"reasoning_tokens"`
 	TotalTokens           int64    `json:"total_tokens"`
 	Cost                  float64  `json:"cost"`
+	CostCNY               float64  `json:"cost_cny"`
 	AvgLatencyMS          *float64 `json:"average_latency_ms"`
 	SuccessRate           float64  `json:"success_rate"`
 	FailureRate           float64  `json:"failure_rate"`
@@ -690,6 +710,7 @@ type APIKeyTimelinePoint struct {
 	ReasoningTokens     int64    `json:"reasoning_tokens"`
 	TotalTokens         int64    `json:"total_tokens"`
 	Cost                float64  `json:"cost"`
+	CostCNY             float64  `json:"cost_cny"`
 	AvgLatencyMS        *float64 `json:"average_latency_ms"`
 	SuccessRate         float64  `json:"success_rate"`
 	FailureRate         float64  `json:"failure_rate"`
@@ -711,6 +732,7 @@ type AccountModelStatRow struct {
 	CacheHitRate        float64 `json:"cache_hit_rate"`
 	TotalTokens         int64   `json:"total_tokens"`
 	Cost                float64 `json:"cost"`
+	CostCNY             float64 `json:"cost_cny"`
 	LastSeenMS          int64   `json:"last_seen_ms"`
 }
 
@@ -734,6 +756,7 @@ type APIKeyStatRow struct {
 	CacheCreationTokens  int64                 `json:"cache_creation_tokens"`
 	TotalTokens          int64                 `json:"total_tokens"`
 	Cost                 float64               `json:"cost"`
+	CostCNY              float64               `json:"cost_cny"`
 	AvgLatencyMS         *float64              `json:"average_latency_ms"`
 	LastSeenMS           int64                 `json:"last_seen_ms"`
 	Models               []AccountModelStatRow `json:"models,omitempty"`
@@ -755,6 +778,7 @@ type APIKeyContextRow struct {
 	FailureRate          float64  `json:"failure_rate"`
 	TotalTokens          int64    `json:"total_tokens"`
 	Cost                 float64  `json:"cost"`
+	CostCNY              float64  `json:"cost_cny"`
 	AvgLatencyMS         *float64 `json:"average_latency_ms"`
 	LastSeenMS           int64    `json:"last_seen_ms"`
 }
@@ -893,6 +917,10 @@ type EventRow struct {
 	CacheCreationTokens    int64                         `json:"cache_creation_tokens"`
 	ReasoningTokens        int64                         `json:"reasoning_tokens"`
 	TotalTokens            int64                         `json:"total_tokens"`
+	CostUSD                float64                       `json:"cost_usd"`
+	CostCNY                float64                       `json:"cost_cny"`
+	PriceSource            string                        `json:"price_source"`
+	CostMultiplier         float64                       `json:"cost_multiplier"`
 	LatencyMS              *int64                        `json:"latency_ms"`
 	TTFTMS                 *int64                        `json:"ttft_ms"`
 	Failed                 bool                          `json:"failed"`
@@ -1271,6 +1299,7 @@ func (s *Service) analytics(ctx context.Context, req Request) (Response, error) 
 					SuccessRate:  ratio(prevAgg.SuccessCalls, prevAgg.TotalCalls),
 					TotalTokens:  prevAgg.TotalTokens,
 					TotalCost:    sumCost(prevModelStats, prices),
+					TotalCostCNY: sumCostTotals(prevModelStats).CostCNY(),
 				}
 			}
 		}
@@ -1568,6 +1597,8 @@ func (s *Service) accountHistory(ctx context.Context, req AccountHistoryRequest)
 			FailureCalls:   total.failureCalls,
 			TotalTokens:    total.totalTokens,
 			TotalCost:      total.cost,
+			TotalCostCNY:   total.costCNY,
+			UnpricedCalls:  total.unpriced,
 			SuccessRate:    successRate,
 			FirstSeenMS:    nullableMSPointer(total.firstSeenMS),
 			LastSeenMS:     nullableMSPointer(total.lastSeenMS),
@@ -1713,6 +1744,8 @@ func (s *Service) accountWindowUsage(ctx context.Context, req AccountWindowUsage
 			FailureCalls:      total.failureCalls,
 			TotalTokens:       total.totalTokens,
 			TotalCost:         total.cost,
+			TotalCostCNY:      total.costCNY,
+			UnpricedCalls:     total.unpriced,
 			SuccessRate:       successRate,
 			LastSeenMS:        nullableMSPointer(total.lastSeenMS),
 			SyncStatus:        "ready",
@@ -2014,6 +2047,7 @@ func channelModelStatsFromAccountStats(stats []store.AccountModelStat) []store.C
 		entry.row.LongCacheReadTokens += stat.LongCacheReadTokens
 		entry.row.LongCacheCreationTokens += stat.LongCacheCreationTokens
 		entry.row.TotalTokens += stat.TotalTokens
+		entry.row.AddCost(stat.CostTotals)
 		if stat.LatencySamples > 0 {
 			entry.latencySumMS += stat.LatencySumMS
 			entry.row.LatencySamples += stat.LatencySamples
@@ -2213,6 +2247,7 @@ func buildSummary(agg store.Aggregate, latencySummary store.LatencySummary, roll
 	}
 	approxTasks := int64(len(taskBuckets))
 	totalCost := sumCost(modelStats, prices)
+	costTotals := sumCostTotals(modelStats)
 	return &Summary{
 		TotalCalls:            agg.TotalCalls,
 		SuccessCalls:          agg.SuccessCalls,
@@ -2227,7 +2262,10 @@ func buildSummary(agg store.Aggregate, latencySummary store.LatencySummary, roll
 		ReasoningTokens:       agg.ReasoningTokens,
 		TotalTokens:           agg.TotalTokens,
 		TotalCost:             totalCost,
+		TotalCostCNY:          costTotals.CostCNY(),
+		UnpricedCalls:         costTotals.UnpricedCalls,
 		AverageCostPerCall:    ratioFloat(totalCost, agg.TotalCalls),
+		AverageCostPerCallCNY: ratioFloat(costTotals.CostCNY(), agg.TotalCalls),
 		AverageLatencyMS:      nullableFloat(agg.AvgLatencyMS.Valid, agg.AvgLatencyMS.Float64),
 		P95LatencyMS:          nullableFloat(latencySummary.P95LatencyMS.Valid, latencySummary.P95LatencyMS.Float64),
 		P95TTFTMS:             nullableFloat(latencySummary.P95TTFTMS.Valid, latencySummary.P95TTFTMS.Float64),
@@ -2305,6 +2343,7 @@ func buildTimeline(points []store.TimelinePoint, percentiles []store.LatencyPerc
 		bucket.point.CacheCreationTokens += point.CacheCreationTokens
 		bucket.point.ReasoningTokens += point.ReasoningTokens
 		bucket.point.Cost += costForTimelinePoint(point, prices)
+		bucket.point.CostCNY += point.CostCNY()
 		behaviorModel := point.BillingModel
 		if strings.TrimSpace(behaviorModel) == "" {
 			behaviorModel = point.Model
@@ -2398,6 +2437,7 @@ func buildHeatmap(points []store.HeatmapPoint, prices map[string]store.ModelPric
 		entry.point.Failure += point.FailureCalls
 		entry.point.Tokens += point.TotalTokens
 		entry.point.Cost += cost
+		entry.point.CostCNY += point.CostCNY()
 		addHeatmapContributor(entry.models, heatmapContributorKey(point.Model), point.Model, point, cost)
 		addHeatmapContributor(entry.apiKeys, strings.TrimSpace(point.APIKeyHash), point.APIKeyHash, point, cost)
 		addHeatmapContributor(entry.providers, heatmapProviderKey(point.Provider), point.Provider, point, cost)
@@ -2437,6 +2477,7 @@ func addHeatmapContributor(group map[string]*HeatmapContributor, key string, lab
 	entry.Failure += point.FailureCalls
 	entry.Tokens += point.TotalTokens
 	entry.Cost += cost
+	entry.CostCNY += point.CostCNY()
 }
 
 func heatmapContributorKey(value string) string {
@@ -2484,6 +2525,7 @@ func buildAnomalyPoints(timeline []TimelinePoint, granularity string) []AnomalyP
 		metricKeys := make([]string, 0, 6)
 		requestChange := percentChange(float64(current.Calls), float64(previous.Calls))
 		costChange := percentChange(current.Cost, previous.Cost)
+		costChangeCNY := percentChange(current.CostCNY, previous.CostCNY)
 		tokensPerRequestChange := percentChange(averageTokensPerRequest(current), averageTokensPerRequest(previous))
 		cacheHitRateChange := cacheHitRate(current) - cacheHitRate(previous)
 		failureRateChange := current.FailureRate - previous.FailureRate
@@ -2491,7 +2533,7 @@ func buildAnomalyPoints(timeline []TimelinePoint, granularity string) []AnomalyP
 		if requestChange > 1 {
 			metricKeys = append(metricKeys, "request_spike")
 		}
-		if costChange > 1 {
+		if costChange > 1 || costChangeCNY > 1 {
 			metricKeys = append(metricKeys, "cost_spike")
 		}
 		if tokensPerRequestChange > 0.5 {
@@ -2518,9 +2560,11 @@ func buildAnomalyPoints(timeline []TimelinePoint, granularity string) []AnomalyP
 			Calls:                  current.Calls,
 			TotalTokens:            current.TotalTokens,
 			Cost:                   current.Cost,
+			CostCNY:                current.CostCNY,
 			FailureRate:            current.FailureRate,
 			RequestChange:          requestChange,
 			CostChange:             costChange,
+			CostChangeCNY:          costChangeCNY,
 			TokensPerRequestChange: tokensPerRequestChange,
 			CacheHitRateChange:     cacheHitRateChange,
 			FailureRateChange:      failureRateChange,
@@ -2543,10 +2587,11 @@ func buildModelShare(stats []store.ModelStat, prices map[string]store.ModelPrice
 	result := make([]ModelShareRow, 0, len(aggregated))
 	for _, stat := range aggregated {
 		result = append(result, ModelShareRow{
-			Model:  stat.Model,
-			Calls:  stat.Calls,
-			Tokens: stat.TotalTokens,
-			Cost:   stat.Cost,
+			Model:   stat.Model,
+			Calls:   stat.Calls,
+			Tokens:  stat.TotalTokens,
+			Cost:    stat.Cost,
+			CostCNY: stat.CostCNY,
 		})
 	}
 	return result
@@ -2572,6 +2617,8 @@ func buildModelStats(stats []store.ModelStat, prices map[string]store.ModelPrice
 			CacheHitRate:        usage.CacheHitRateFromTotals(stat.CacheHitTokens, stat.CacheHitInputTokens),
 			TotalTokens:         stat.TotalTokens,
 			Cost:                stat.Cost,
+			CostCNY:             stat.CostCNY,
+			UnpricedCalls:       stat.UnpricedCalls,
 		})
 	}
 	return result
@@ -2590,6 +2637,8 @@ type aggregatedModelStat struct {
 	CacheHitInputTokens int64
 	TotalTokens         int64
 	Cost                float64
+	CostCNY             float64
+	UnpricedCalls       int64
 }
 
 func aggregateModelStats(stats []store.ModelStat, prices map[string]store.ModelPrice) []aggregatedModelStat {
@@ -2624,6 +2673,8 @@ func aggregateModelStats(stats []store.ModelStat, prices map[string]store.ModelP
 		entry.CacheHitInputTokens += cacheHitInputTokens
 		entry.TotalTokens += stat.TotalTokens
 		entry.Cost += costForStat(stat, prices)
+		entry.CostCNY += stat.CostCNY()
+		entry.UnpricedCalls += stat.UnpricedCalls
 	}
 	result := make([]aggregatedModelStat, 0, len(order))
 	for _, model := range order {
@@ -2664,6 +2715,7 @@ func buildChannelShare(stats []store.ChannelModelStat, prices map[string]store.M
 		entry.row.Failure += stat.FailureCalls
 		entry.row.Tokens += stat.TotalTokens
 		entry.row.Cost += costForChannelStat(stat, prices)
+		entry.row.CostCNY += stat.CostCNY()
 		if stat.AvgLatencyMS.Valid && stat.LatencySamples > 0 {
 			entry.latencySum += stat.AvgLatencyMS.Float64 * float64(stat.LatencySamples)
 			entry.latencyN += stat.LatencySamples
@@ -2823,6 +2875,7 @@ func buildAccountStats(stats []store.AccountModelStat, prices map[string]store.M
 		addSetValue(entry.sources, stat.Source)
 		addSetValue(entry.sourceHashes, stat.SourceHash)
 		cost := costForAccountModelStat(stat, prices)
+		costCNY := stat.CostCNY()
 		addAccountTotals(
 			&entry.row.Calls,
 			&entry.row.SuccessCalls,
@@ -2834,6 +2887,7 @@ func buildAccountStats(stats []store.AccountModelStat, prices map[string]store.M
 			&entry.row.CacheCreationTokens,
 			&entry.row.TotalTokens,
 			&entry.row.Cost,
+			&entry.row.CostCNY,
 			stat.Calls,
 			stat.SuccessCalls,
 			stat.FailureCalls,
@@ -2844,6 +2898,7 @@ func buildAccountStats(stats []store.AccountModelStat, prices map[string]store.M
 			stat.CacheCreationTokens,
 			stat.TotalTokens,
 			cost,
+			costCNY,
 		)
 		if stat.LastSeenMS > entry.row.LastSeenMS {
 			entry.row.LastSeenMS = stat.LastSeenMS
@@ -2852,7 +2907,7 @@ func buildAccountStats(stats []store.AccountModelStat, prices map[string]store.M
 			entry.latencySum += stat.AvgLatencyMS.Float64 * float64(stat.LatencySamples)
 			entry.latencySamples += stat.LatencySamples
 		}
-		addAccountModelStat(entry.models, stat.Model, stat.BillingModel, stat.Calls, stat.SuccessCalls, stat.FailureCalls, stat.InputTokens, stat.OutputTokens, stat.CachedTokens, stat.CacheReadTokens, stat.CacheCreationTokens, stat.TotalTokens, cost, stat.LastSeenMS)
+		addAccountModelStat(entry.models, stat.Model, stat.BillingModel, stat.Calls, stat.SuccessCalls, stat.FailureCalls, stat.InputTokens, stat.OutputTokens, stat.CachedTokens, stat.CacheReadTokens, stat.CacheCreationTokens, stat.TotalTokens, cost, costCNY, stat.LastSeenMS)
 	}
 
 	result := make([]AccountStatRow, 0, len(grouped))
@@ -2901,6 +2956,7 @@ func buildCredentialStats(stats []store.CredentialModelStat, prices map[string]s
 		}
 		fillCredentialStatSnapshots(&entry.row, stat)
 		cost := costForCredentialModelStat(stat, prices)
+		costCNY := stat.CostCNY()
 		addAccountTotals(
 			&entry.row.Calls,
 			&entry.row.SuccessCalls,
@@ -2912,6 +2968,7 @@ func buildCredentialStats(stats []store.CredentialModelStat, prices map[string]s
 			&entry.row.CacheCreationTokens,
 			&entry.row.TotalTokens,
 			&entry.row.Cost,
+			&entry.row.CostCNY,
 			stat.Calls,
 			stat.SuccessCalls,
 			stat.FailureCalls,
@@ -2922,6 +2979,7 @@ func buildCredentialStats(stats []store.CredentialModelStat, prices map[string]s
 			stat.CacheCreationTokens,
 			stat.TotalTokens,
 			cost,
+			costCNY,
 		)
 		if stat.LastSeenMS > entry.row.LastSeenMS {
 			entry.row.LastSeenMS = stat.LastSeenMS
@@ -2930,7 +2988,7 @@ func buildCredentialStats(stats []store.CredentialModelStat, prices map[string]s
 			entry.latencySum += stat.AvgLatencyMS.Float64 * float64(stat.LatencySamples)
 			entry.latencySamples += stat.LatencySamples
 		}
-		addAccountModelStat(entry.models, stat.Model, stat.BillingModel, stat.Calls, stat.SuccessCalls, stat.FailureCalls, stat.InputTokens, stat.OutputTokens, stat.CachedTokens, stat.CacheReadTokens, stat.CacheCreationTokens, stat.TotalTokens, cost, stat.LastSeenMS)
+		addAccountModelStat(entry.models, stat.Model, stat.BillingModel, stat.Calls, stat.SuccessCalls, stat.FailureCalls, stat.InputTokens, stat.OutputTokens, stat.CachedTokens, stat.CacheReadTokens, stat.CacheCreationTokens, stat.TotalTokens, cost, costCNY, stat.LastSeenMS)
 	}
 
 	result := make([]CredentialStatRow, 0, len(grouped))
@@ -3002,6 +3060,7 @@ func buildCredentialTimeline(points []store.CredentialTimelinePoint, granularity
 		entry.point.CacheCreationTokens += point.CacheCreationTokens
 		entry.point.ReasoningTokens += point.ReasoningTokens
 		entry.point.Cost += costForCredentialTimelinePoint(point, prices)
+		entry.point.CostCNY += point.CostCNY()
 		if point.AvgLatencyMS.Valid && point.LatencySamples > 0 {
 			entry.latencySum += point.AvgLatencyMS.Float64 * float64(point.LatencySamples)
 			entry.latencySamples += point.LatencySamples
@@ -3065,6 +3124,7 @@ func buildAPIKeyTimeline(points []store.APIKeyTimelinePoint, granularity string,
 		entry.point.CacheCreationTokens += point.CacheCreationTokens
 		entry.point.ReasoningTokens += point.ReasoningTokens
 		entry.point.Cost += costForAPIKeyTimelinePoint(point, prices)
+		entry.point.CostCNY += point.CostCNY()
 		if point.AvgLatencyMS.Valid && point.LatencySamples > 0 {
 			entry.latencySum += point.AvgLatencyMS.Float64 * float64(point.LatencySamples)
 			entry.latencySamples += point.LatencySamples
@@ -3112,6 +3172,7 @@ func buildAPIKeyStats(stats []store.APIKeyModelStat, prices map[string]store.Mod
 		addSetValue(entry.sources, stat.Source)
 		addSetValue(entry.sourceHashes, stat.SourceHash)
 		cost := costForAPIKeyModelStat(stat, prices)
+		costCNY := stat.CostCNY()
 		addAccountTotals(
 			&entry.row.Calls,
 			&entry.row.SuccessCalls,
@@ -3123,6 +3184,7 @@ func buildAPIKeyStats(stats []store.APIKeyModelStat, prices map[string]store.Mod
 			&entry.row.CacheCreationTokens,
 			&entry.row.TotalTokens,
 			&entry.row.Cost,
+			&entry.row.CostCNY,
 			stat.Calls,
 			stat.SuccessCalls,
 			stat.FailureCalls,
@@ -3133,6 +3195,7 @@ func buildAPIKeyStats(stats []store.APIKeyModelStat, prices map[string]store.Mod
 			stat.CacheCreationTokens,
 			stat.TotalTokens,
 			cost,
+			costCNY,
 		)
 		if stat.LastSeenMS > entry.row.LastSeenMS {
 			entry.row.LastSeenMS = stat.LastSeenMS
@@ -3142,7 +3205,7 @@ func buildAPIKeyStats(stats []store.APIKeyModelStat, prices map[string]store.Mod
 			entry.latencySamples += stat.LatencySamples
 		}
 		addAPIKeyContextStat(entry.contexts, stat, cost)
-		addAccountModelStat(entry.models, stat.Model, stat.BillingModel, stat.Calls, stat.SuccessCalls, stat.FailureCalls, stat.InputTokens, stat.OutputTokens, stat.CachedTokens, stat.CacheReadTokens, stat.CacheCreationTokens, stat.TotalTokens, cost, stat.LastSeenMS)
+		addAccountModelStat(entry.models, stat.Model, stat.BillingModel, stat.Calls, stat.SuccessCalls, stat.FailureCalls, stat.InputTokens, stat.OutputTokens, stat.CachedTokens, stat.CacheReadTokens, stat.CacheCreationTokens, stat.TotalTokens, cost, costCNY, stat.LastSeenMS)
 	}
 
 	result := make([]APIKeyStatRow, 0, len(grouped))
@@ -3404,6 +3467,7 @@ func addAccountTotals(
 	cacheCreationTokens *int64,
 	totalTokens *int64,
 	cost *float64,
+	costCNY *float64,
 	addCalls int64,
 	addSuccessCalls int64,
 	addFailureCalls int64,
@@ -3414,6 +3478,7 @@ func addAccountTotals(
 	addCacheCreationTokens int64,
 	addTotalTokens int64,
 	addCost float64,
+	addCostCNY float64,
 ) {
 	*calls += addCalls
 	*successCalls += addSuccessCalls
@@ -3425,6 +3490,7 @@ func addAccountTotals(
 	*cacheCreationTokens += addCacheCreationTokens
 	*totalTokens += addTotalTokens
 	*cost += addCost
+	*costCNY += addCostCNY
 }
 
 func addAccountModelStat(
@@ -3441,6 +3507,7 @@ func addAccountModelStat(
 	cacheCreationTokens int64,
 	totalTokens int64,
 	cost float64,
+	costCNY float64,
 	lastSeenMS int64,
 ) {
 	modelKey := model
@@ -3476,6 +3543,7 @@ func addAccountModelStat(
 	entry.CacheHitRate = usage.CacheHitRateFromTotals(entry.CacheHitTokens, entry.CacheHitInputTokens)
 	entry.TotalTokens += totalTokens
 	entry.Cost += cost
+	entry.CostCNY += costCNY
 	if lastSeenMS > entry.LastSeenMS {
 		entry.LastSeenMS = lastSeenMS
 	}
@@ -3524,6 +3592,7 @@ func addAPIKeyContextStat(contexts map[string]*apiKeyContextAccumulator, stat st
 	entry.row.FailureCalls += stat.FailureCalls
 	entry.row.TotalTokens += stat.TotalTokens
 	entry.row.Cost += cost
+	entry.row.CostCNY += stat.CostCNY()
 	if stat.LastSeenMS > entry.row.LastSeenMS {
 		entry.row.LastSeenMS = stat.LastSeenMS
 	}
@@ -3662,6 +3731,10 @@ func buildEvents(page store.EventsPage, totalCount int64) *EventsResponse {
 			CacheCreationTokens:    item.CacheCreationTokens,
 			ReasoningTokens:        item.ReasoningTokens,
 			TotalTokens:            item.TotalTokens,
+			CostUSD:                float64(item.CostUSDNanos) / 1e9,
+			CostCNY:                float64(item.CostCNYNanos) / 1e9,
+			PriceSource:            item.PriceSource,
+			CostMultiplier:         item.CostMultiplier,
 			LatencyMS:              nullableInt(item.LatencyMS.Valid, item.LatencyMS.Int64),
 			TTFTMS:                 nullableInt(item.TTFTMS.Valid, item.TTFTMS.Int64),
 			Failed:                 item.Failed,
@@ -3716,6 +3789,8 @@ type accountHistoryTotal struct {
 	failureCalls int64
 	totalTokens  int64
 	cost         float64
+	costCNY      float64
+	unpriced     int64
 	firstSeenMS  int64
 	lastSeenMS   int64
 }
@@ -3822,25 +3897,9 @@ func buildPricingAccountHistoryTotals(rows []store.UsagePricingAccountRow, price
 		total.successCalls += row.SuccessCalls
 		total.failureCalls += row.FailureCalls
 		total.totalTokens += row.TotalTokens
-		total.cost += pricing.CostForModelCandidatesWithServiceTier(
-			[]string{row.BillingModel, row.Model},
-			row.ServiceTier,
-			pricing.ModelTokens{
-				PricingModel:            row.PricingModel,
-				ContextThresholdTokens:  row.ContextThresholdTokens,
-				InputTokens:             row.InputTokens,
-				OutputTokens:            row.OutputTokens,
-				CachedTokens:            row.CachedTokens,
-				CacheReadTokens:         row.CacheReadTokens,
-				CacheCreationTokens:     row.CacheCreationTokens,
-				LongInputTokens:         row.LongInputTokens,
-				LongOutputTokens:        row.LongOutputTokens,
-				LongCachedTokens:        row.LongCachedTokens,
-				LongCacheReadTokens:     row.LongCacheReadTokens,
-				LongCacheCreationTokens: row.LongCacheCreationTokens,
-			},
-			prices,
-		)
+		total.cost += row.CostUSD()
+		total.costCNY += row.CostCNY()
+		total.unpriced += row.UnpricedCalls
 		if total.firstSeenMS == 0 || (row.FirstSeenMS > 0 && row.FirstSeenMS < total.firstSeenMS) {
 			total.firstSeenMS = row.FirstSeenMS
 		}
@@ -4094,25 +4153,9 @@ func buildAccountWindowUsageTotals(rows []store.AccountWindowModelStat, prices m
 		total.successCalls += row.SuccessCalls
 		total.failureCalls += row.FailureCalls
 		total.totalTokens += row.TotalTokens
-		total.cost += pricing.CostForModelCandidatesWithServiceTier(
-			[]string{row.BillingModel, row.Model},
-			row.ServiceTier,
-			pricing.ModelTokens{
-				PricingModel:            row.PricingModel,
-				ContextThresholdTokens:  row.ContextThresholdTokens,
-				InputTokens:             row.InputTokens,
-				OutputTokens:            row.OutputTokens,
-				CachedTokens:            row.CachedTokens,
-				CacheReadTokens:         row.CacheReadTokens,
-				CacheCreationTokens:     row.CacheCreationTokens,
-				LongInputTokens:         row.LongInputTokens,
-				LongOutputTokens:        row.LongOutputTokens,
-				LongCachedTokens:        row.LongCachedTokens,
-				LongCacheReadTokens:     row.LongCacheReadTokens,
-				LongCacheCreationTokens: row.LongCacheCreationTokens,
-			},
-			prices,
-		)
+		total.cost += row.CostUSD()
+		total.costCNY += row.CostCNY()
+		total.unpriced += row.UnpricedCalls
 		if row.LastSeenMS > total.lastSeenMS {
 			total.lastSeenMS = row.LastSeenMS
 		}
@@ -4137,6 +4180,9 @@ func nullableMSPointer(value int64) *int64 {
 	return &value
 }
 
+// sumCost totals the default-book USD estimate; sumCostTotals carries the CNY
+// spend and unpriced calls alongside it. Both read the cost stored per event,
+// so the price book no longer affects history at read time.
 func sumCost(stats []store.ModelStat, prices map[string]store.ModelPrice) float64 {
 	total := 0.0
 	for _, stat := range stats {
@@ -4145,157 +4191,48 @@ func sumCost(stats []store.ModelStat, prices map[string]store.ModelPrice) float6
 	return total
 }
 
-func costForStat(stat store.ModelStat, prices map[string]store.ModelPrice) float64 {
-	return pricing.CostForModelCandidatesWithServiceTier([]string{stat.BillingModel, stat.Model}, stat.ServiceTier, pricing.ModelTokens{
-		PricingModel:            stat.PricingModel,
-		ContextThresholdTokens:  stat.ContextThresholdTokens,
-		InputTokens:             stat.InputTokens,
-		OutputTokens:            stat.OutputTokens,
-		CachedTokens:            stat.CachedTokens,
-		CacheReadTokens:         stat.CacheReadTokens,
-		CacheCreationTokens:     stat.CacheCreationTokens,
-		LongInputTokens:         stat.LongInputTokens,
-		LongOutputTokens:        stat.LongOutputTokens,
-		LongCachedTokens:        stat.LongCachedTokens,
-		LongCacheReadTokens:     stat.LongCacheReadTokens,
-		LongCacheCreationTokens: stat.LongCacheCreationTokens,
-	}, prices)
+func sumCostTotals(stats []store.ModelStat) usage.CostTotals {
+	var totals usage.CostTotals
+	for _, stat := range stats {
+		totals.AddCost(stat.CostTotals)
+	}
+	return totals
 }
 
-func costForTimelinePoint(point store.TimelinePoint, prices map[string]store.ModelPrice) float64 {
-	return pricing.CostForModelCandidatesWithServiceTier([]string{point.BillingModel, point.Model}, point.ServiceTier, pricing.ModelTokens{
-		PricingModel:            point.PricingModel,
-		ContextThresholdTokens:  point.ContextThresholdTokens,
-		InputTokens:             point.InputTokens,
-		OutputTokens:            point.OutputTokens,
-		CachedTokens:            point.CachedTokens,
-		CacheReadTokens:         point.CacheReadTokens,
-		CacheCreationTokens:     point.CacheCreationTokens,
-		LongInputTokens:         point.LongInputTokens,
-		LongOutputTokens:        point.LongOutputTokens,
-		LongCachedTokens:        point.LongCachedTokens,
-		LongCacheReadTokens:     point.LongCacheReadTokens,
-		LongCacheCreationTokens: point.LongCacheCreationTokens,
-	}, prices)
+func costForStat(stat store.ModelStat, _ map[string]store.ModelPrice) float64 {
+	return stat.CostUSD()
 }
 
-func costForHeatmapPoint(point store.HeatmapPoint, prices map[string]store.ModelPrice) float64 {
-	return pricing.CostForModelCandidatesWithServiceTier([]string{point.BillingModel, point.Model}, point.ServiceTier, pricing.ModelTokens{
-		PricingModel:            point.PricingModel,
-		ContextThresholdTokens:  point.ContextThresholdTokens,
-		InputTokens:             point.InputTokens,
-		OutputTokens:            point.OutputTokens,
-		CachedTokens:            point.CachedTokens,
-		CacheReadTokens:         point.CacheReadTokens,
-		CacheCreationTokens:     point.CacheCreationTokens,
-		LongInputTokens:         point.LongInputTokens,
-		LongOutputTokens:        point.LongOutputTokens,
-		LongCachedTokens:        point.LongCachedTokens,
-		LongCacheReadTokens:     point.LongCacheReadTokens,
-		LongCacheCreationTokens: point.LongCacheCreationTokens,
-	}, prices)
+func costForTimelinePoint(point store.TimelinePoint, _ map[string]store.ModelPrice) float64 {
+	return point.CostUSD()
 }
 
-func costForChannelStat(stat store.ChannelModelStat, prices map[string]store.ModelPrice) float64 {
-	return pricing.CostForModelCandidatesWithServiceTier([]string{stat.BillingModel, stat.Model}, stat.ServiceTier, pricing.ModelTokens{
-		PricingModel:            stat.PricingModel,
-		ContextThresholdTokens:  stat.ContextThresholdTokens,
-		InputTokens:             stat.InputTokens,
-		OutputTokens:            stat.OutputTokens,
-		CachedTokens:            stat.CachedTokens,
-		CacheReadTokens:         stat.CacheReadTokens,
-		CacheCreationTokens:     stat.CacheCreationTokens,
-		LongInputTokens:         stat.LongInputTokens,
-		LongOutputTokens:        stat.LongOutputTokens,
-		LongCachedTokens:        stat.LongCachedTokens,
-		LongCacheReadTokens:     stat.LongCacheReadTokens,
-		LongCacheCreationTokens: stat.LongCacheCreationTokens,
-	}, prices)
+func costForHeatmapPoint(point store.HeatmapPoint, _ map[string]store.ModelPrice) float64 {
+	return point.CostUSD()
 }
 
-func costForAccountModelStat(stat store.AccountModelStat, prices map[string]store.ModelPrice) float64 {
-	return pricing.CostForModelCandidatesWithServiceTier([]string{stat.BillingModel, stat.Model}, stat.ServiceTier, pricing.ModelTokens{
-		PricingModel:            stat.PricingModel,
-		ContextThresholdTokens:  stat.ContextThresholdTokens,
-		InputTokens:             stat.InputTokens,
-		OutputTokens:            stat.OutputTokens,
-		CachedTokens:            stat.CachedTokens,
-		CacheReadTokens:         stat.CacheReadTokens,
-		CacheCreationTokens:     stat.CacheCreationTokens,
-		LongInputTokens:         stat.LongInputTokens,
-		LongOutputTokens:        stat.LongOutputTokens,
-		LongCachedTokens:        stat.LongCachedTokens,
-		LongCacheReadTokens:     stat.LongCacheReadTokens,
-		LongCacheCreationTokens: stat.LongCacheCreationTokens,
-	}, prices)
+func costForChannelStat(stat store.ChannelModelStat, _ map[string]store.ModelPrice) float64 {
+	return stat.CostUSD()
 }
 
-func costForAPIKeyModelStat(stat store.APIKeyModelStat, prices map[string]store.ModelPrice) float64 {
-	return pricing.CostForModelCandidatesWithServiceTier([]string{stat.BillingModel, stat.Model}, stat.ServiceTier, pricing.ModelTokens{
-		PricingModel:            stat.PricingModel,
-		ContextThresholdTokens:  stat.ContextThresholdTokens,
-		InputTokens:             stat.InputTokens,
-		OutputTokens:            stat.OutputTokens,
-		CachedTokens:            stat.CachedTokens,
-		CacheReadTokens:         stat.CacheReadTokens,
-		CacheCreationTokens:     stat.CacheCreationTokens,
-		LongInputTokens:         stat.LongInputTokens,
-		LongOutputTokens:        stat.LongOutputTokens,
-		LongCachedTokens:        stat.LongCachedTokens,
-		LongCacheReadTokens:     stat.LongCacheReadTokens,
-		LongCacheCreationTokens: stat.LongCacheCreationTokens,
-	}, prices)
+func costForAccountModelStat(stat store.AccountModelStat, _ map[string]store.ModelPrice) float64 {
+	return stat.CostUSD()
 }
 
-func costForCredentialModelStat(stat store.CredentialModelStat, prices map[string]store.ModelPrice) float64 {
-	return pricing.CostForModelCandidatesWithServiceTier([]string{stat.BillingModel, stat.Model}, stat.ServiceTier, pricing.ModelTokens{
-		PricingModel:            stat.PricingModel,
-		ContextThresholdTokens:  stat.ContextThresholdTokens,
-		InputTokens:             stat.InputTokens,
-		OutputTokens:            stat.OutputTokens,
-		CachedTokens:            stat.CachedTokens,
-		CacheReadTokens:         stat.CacheReadTokens,
-		CacheCreationTokens:     stat.CacheCreationTokens,
-		LongInputTokens:         stat.LongInputTokens,
-		LongOutputTokens:        stat.LongOutputTokens,
-		LongCachedTokens:        stat.LongCachedTokens,
-		LongCacheReadTokens:     stat.LongCacheReadTokens,
-		LongCacheCreationTokens: stat.LongCacheCreationTokens,
-	}, prices)
+func costForAPIKeyModelStat(stat store.APIKeyModelStat, _ map[string]store.ModelPrice) float64 {
+	return stat.CostUSD()
 }
 
-func costForCredentialTimelinePoint(point store.CredentialTimelinePoint, prices map[string]store.ModelPrice) float64 {
-	return pricing.CostForModelCandidatesWithServiceTier([]string{point.BillingModel, point.Model}, point.ServiceTier, pricing.ModelTokens{
-		PricingModel:            point.PricingModel,
-		ContextThresholdTokens:  point.ContextThresholdTokens,
-		InputTokens:             point.InputTokens,
-		OutputTokens:            point.OutputTokens,
-		CachedTokens:            point.CachedTokens,
-		CacheReadTokens:         point.CacheReadTokens,
-		CacheCreationTokens:     point.CacheCreationTokens,
-		LongInputTokens:         point.LongInputTokens,
-		LongOutputTokens:        point.LongOutputTokens,
-		LongCachedTokens:        point.LongCachedTokens,
-		LongCacheReadTokens:     point.LongCacheReadTokens,
-		LongCacheCreationTokens: point.LongCacheCreationTokens,
-	}, prices)
+func costForCredentialModelStat(stat store.CredentialModelStat, _ map[string]store.ModelPrice) float64 {
+	return stat.CostUSD()
 }
 
-func costForAPIKeyTimelinePoint(point store.APIKeyTimelinePoint, prices map[string]store.ModelPrice) float64 {
-	return pricing.CostForModelCandidatesWithServiceTier([]string{point.BillingModel, point.Model}, point.ServiceTier, pricing.ModelTokens{
-		PricingModel:            point.PricingModel,
-		ContextThresholdTokens:  point.ContextThresholdTokens,
-		InputTokens:             point.InputTokens,
-		OutputTokens:            point.OutputTokens,
-		CachedTokens:            point.CachedTokens,
-		CacheReadTokens:         point.CacheReadTokens,
-		CacheCreationTokens:     point.CacheCreationTokens,
-		LongInputTokens:         point.LongInputTokens,
-		LongOutputTokens:        point.LongOutputTokens,
-		LongCachedTokens:        point.LongCachedTokens,
-		LongCacheReadTokens:     point.LongCacheReadTokens,
-		LongCacheCreationTokens: point.LongCacheCreationTokens,
-	}, prices)
+func costForCredentialTimelinePoint(point store.CredentialTimelinePoint, _ map[string]store.ModelPrice) float64 {
+	return point.CostUSD()
+}
+
+func costForAPIKeyTimelinePoint(point store.APIKeyTimelinePoint, _ map[string]store.ModelPrice) float64 {
+	return point.CostUSD()
 }
 
 func ratio(part int64, total int64) float64 {

@@ -22,6 +22,7 @@ import (
 	modelpricesvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/modelprice"
 	monitoringsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/monitoring"
 	panelsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/panel"
+	providerpricesvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/providerprice"
 	proxysvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/proxy"
 	quotasnapshotsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/quotasnapshot"
 	setupsvc "github.com/seakee/cpa-manager-plus/apps/manager-server/internal/service/setup"
@@ -56,6 +57,7 @@ type Context struct {
 	MonitoringService              *monitoringsvc.Service
 	QuotaSnapshotService           *quotasnapshotsvc.Service
 	ModelPriceService              *modelpricesvc.Service
+	ProviderPriceService           *providerpricesvc.Service
 	APIKeyAliasService             *apikeyaliassvc.Service
 	AccountActionService           *accountactionsvc.Service
 	AccountProcessingPolicyService *automationsvc.Service
@@ -168,6 +170,7 @@ func fromExisting(
 		MonitoringService:    monitoringsvc.New(st, cfg.DashboardHourlyRollupEnabled),
 		QuotaSnapshotService: quotasnapshotsvc.New(st),
 		ModelPriceService:    modelpricesvc.NewMultiSourceWithModelsDev(st, modelsDevModelPriceSyncURL, modelPriceSyncURL, openRouterModelPriceSyncURL, managerConfigService),
+		ProviderPriceService: providerpricesvc.New(st),
 		APIKeyAliasService:   apikeyaliassvc.New(st),
 		AccountActionService: accountactionsvc.NewWithMutationCoordinator(
 			st,

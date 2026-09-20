@@ -4,9 +4,16 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usageeventcost"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usageprojection"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/usageidentity"
 )
+
+// projectionCostJoinSQL left-joins the stored event cost onto the projection
+// row, which carries the event id as event_id rather than id. Callers that do
+// not select the cost columns leave the join unused, and SQLite drops an unused
+// left join on a unique key.
+const projectionCostJoinSQL = "left join " + usageeventcost.Table + " on " + usageeventcost.Table + ".event_id = p.event_id"
 
 type eventSourceOptions struct {
 	AfterID            int64
@@ -48,8 +55,10 @@ func filteredEventSourceSQL(
 	if options.ProjectionComplete {
 		query := fmt.Sprintf(`select %s
 			from usage_monitoring_event_projection_v1 p
+			%s
 			where p.event_id <= ? and %s`,
 			projectionSelect,
+			projectionCostJoinSQL,
 			strings.Join(projectionConditions, " and "),
 		)
 		args := make([]any, 0, len(projectionArgs)+1)
@@ -60,14 +69,18 @@ func filteredEventSourceSQL(
 
 	query := fmt.Sprintf(`select %s
 		from usage_monitoring_event_projection_v1 p
+		%s
 		where p.event_id <= ? and %s
 	union all
 	select %s
 		from usage_events e
+		%s
 		where e.id > ? and %s`,
 		projectionSelect,
+		projectionCostJoinSQL,
 		strings.Join(projectionConditions, " and "),
 		rawSelect,
+		usageeventcost.JoinSQL("e"),
 		strings.Join(rawConditions, " and "),
 	)
 	args := make([]any, 0, len(projectionArgs)+len(rawArgs)+2)

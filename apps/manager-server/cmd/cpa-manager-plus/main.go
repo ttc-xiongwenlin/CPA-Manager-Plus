@@ -145,6 +145,7 @@ func runServer() {
 	accountHistoryRollupWorker := worker.NewAccountHistoryRollupWorker(db)
 	usageDerivedRollupWorker := worker.NewUsagePricingRollupWorker(db)
 	serverApp.AppContext().ModelPriceService.SetPricesChangedNotifier(usageDerivedRollupWorker.Wake)
+	serverApp.AppContext().ProviderPriceService.SetChangedNotifier(usageDerivedRollupWorker.Wake)
 	var usageHourlyAggregateWorker *worker.UsageHourlyAggregateWorker
 	if cfg.DashboardHourlyRollupEnabled {
 		usageHourlyAggregateWorker = worker.NewUsageHourlyAggregateWorker(db)

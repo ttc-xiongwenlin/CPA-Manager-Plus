@@ -114,6 +114,7 @@ type UsagePricingHourlyRow = usagepricing.HourlyRow
 type UsagePricingAccountRow = usagepricing.AccountRow
 type UsageEventCostState = usageeventcost.State
 type UsageEventCostCatchUpResult = usageeventcost.CatchUpResult
+type ObservedProviderModel = usageeventcost.ObservedProviderModel
 type UsageMonitoringState = usagemonitoring.State
 type UsageMonitoringTimelineHourRow = usagemonitoring.TimelineHourRow
 type UsageMonitoringAPIKeyTimelineHourRow = usagemonitoring.APIKeyTimelineHourRow
@@ -574,6 +575,10 @@ func (s *Store) UsageEventCostCoverage(ctx context.Context) (int64, error) {
 
 func (s *Store) StartUsageEventCostReprice(ctx context.Context, fromMS, nowMS int64) (UsageEventCostState, error) {
 	return s.EventCosts.StartReprice(ctx, fromMS, nowMS)
+}
+
+func (s *Store) ObservedProviderModels(ctx context.Context, sinceMS int64) ([]ObservedProviderModel, error) {
+	return s.EventCosts.ObservedProviderModels(ctx, sinceMS)
 }
 
 func (s *Store) CatchUpUsageMonitoringStats(ctx context.Context, limit int, nowMS int64) (UsageMonitoringCatchUpResult, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usageeventcost"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/usage"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/usageidentity"
 )
@@ -69,14 +70,16 @@ func (r *repository) LoadTimeline(ctx context.Context, filter AnalyticsFilter) (
 		`p.timestamp_ms, p.requested_model as model, p.analytics_model, p.resolved_model, p.service_tier, p.failed,
 		p.normalized_total_input_tokens, p.output_tokens, p.reasoning_tokens,
 		p.cached_tokens, p.cache_tokens, p.cache_read_tokens,
-		p.cache_creation_tokens, p.total_tokens, p.latency_ms`,
+		p.cache_creation_tokens, p.total_tokens, p.latency_ms,
+		`+usageeventcost.PassthroughColumnsSQL,
 		`e.timestamp_ms, `+usageidentity.SQLEffectiveRequestedModelExpression("e.model", "e.requested_model")+`, `+usageidentity.SQLRequestAnalyticsModelExpression("e.model", "e.requested_model")+`, coalesce(e.resolved_model, ''),
 		coalesce(e.service_tier, ''), coalesce(e.failed, 0),
 		coalesce(e.normalized_total_input_tokens, e.input_tokens, 0),
 		coalesce(e.output_tokens, 0), coalesce(e.reasoning_tokens, 0),
 		coalesce(e.cached_tokens, 0), coalesce(e.cache_tokens, 0),
 		coalesce(e.cache_read_tokens, 0), coalesce(e.cache_creation_tokens, 0),
-		coalesce(e.total_tokens, 0), e.latency_ms`,
+		coalesce(e.total_tokens, 0), e.latency_ms,
+		`+usageeventcost.PassthroughColumnsSQL,
 		eventSourceOptions{ProjectionComplete: projectionComplete},
 	)
 	query := monitoringBandedProjectedEventsCTE(source) + `
@@ -104,7 +107,8 @@ func (r *repository) LoadTimeline(ctx context.Context, filter AnalyticsFilter) (
 		coalesce(sum(total_tokens), 0),
 		coalesce(sum(case when latency_ms is not null and latency_ms != 0 then latency_ms else 0 end), 0),
 		count(nullif(latency_ms, 0)),
-		min(timestamp_ms)
+		min(timestamp_ms),
+		` + usageeventcost.SumSQL + `
 	from banded_events
 	group by bucket_ms, analytics_model, billing_model_value, pricing_model_value,
 		context_threshold_tokens_value, coalesce(service_tier, '')
@@ -144,6 +148,9 @@ func (r *repository) LoadTimeline(ctx context.Context, filter AnalyticsFilter) (
 			&row.LatencySumMS,
 			&row.LatencySamples,
 			&row.FirstTimestampMS,
+			&row.CostCNYNanos,
+			&row.CostUSDNanos,
+			&row.UnpricedCalls,
 		); err != nil {
 			return nil, state, false, err
 		}
@@ -183,14 +190,16 @@ func (r *repository) LoadAPIKeyTimeline(ctx context.Context, filter AnalyticsFil
 		`p.timestamp_ms, p.api_key_hash, p.requested_model as model, p.analytics_model, p.resolved_model, p.service_tier, p.failed,
 		p.normalized_total_input_tokens, p.output_tokens, p.reasoning_tokens,
 		p.cached_tokens, p.cache_tokens, p.cache_read_tokens,
-		p.cache_creation_tokens, p.total_tokens, p.latency_ms`,
+		p.cache_creation_tokens, p.total_tokens, p.latency_ms,
+		`+usageeventcost.PassthroughColumnsSQL,
 		`e.timestamp_ms, coalesce(e.api_key_hash, ''), `+usageidentity.SQLEffectiveRequestedModelExpression("e.model", "e.requested_model")+`, `+usageidentity.SQLRequestAnalyticsModelExpression("e.model", "e.requested_model")+`,
 		coalesce(e.resolved_model, ''), coalesce(e.service_tier, ''), coalesce(e.failed, 0),
 		coalesce(e.normalized_total_input_tokens, e.input_tokens, 0),
 		coalesce(e.output_tokens, 0), coalesce(e.reasoning_tokens, 0),
 		coalesce(e.cached_tokens, 0), coalesce(e.cache_tokens, 0),
 		coalesce(e.cache_read_tokens, 0), coalesce(e.cache_creation_tokens, 0),
-		coalesce(e.total_tokens, 0), e.latency_ms`,
+		coalesce(e.total_tokens, 0), e.latency_ms,
+		`+usageeventcost.PassthroughColumnsSQL,
 		eventSourceOptions{ProjectionComplete: projectionComplete},
 	)
 	query := monitoringBandedProjectedEventsCTE(source) + `
@@ -219,7 +228,8 @@ func (r *repository) LoadAPIKeyTimeline(ctx context.Context, filter AnalyticsFil
 		coalesce(sum(total_tokens), 0),
 		coalesce(sum(case when latency_ms is not null and latency_ms != 0 then latency_ms else 0 end), 0),
 		count(nullif(latency_ms, 0)),
-		min(timestamp_ms)
+		min(timestamp_ms),
+		` + usageeventcost.SumSQL + `
 	from banded_events
 	group by bucket_ms, api_key_hash, analytics_model, billing_model_value, pricing_model_value,
 		context_threshold_tokens_value, coalesce(service_tier, '')
@@ -260,6 +270,9 @@ func (r *repository) LoadAPIKeyTimeline(ctx context.Context, filter AnalyticsFil
 			&row.LatencySumMS,
 			&row.LatencySamples,
 			&row.FirstTimestampMS,
+			&row.CostCNYNanos,
+			&row.CostUSDNanos,
+			&row.UnpricedCalls,
 		); err != nil {
 			return nil, state, false, err
 		}
@@ -317,7 +330,8 @@ func (r *repository) LoadCredentialTimeline(ctx context.Context, filter Analytic
 		p.resolved_model, p.service_tier, p.failed,
 		p.normalized_total_input_tokens, p.output_tokens, p.reasoning_tokens,
 		p.cached_tokens, p.cache_tokens, p.cache_read_tokens,
-		p.cache_creation_tokens, p.total_tokens, p.latency_ms`,
+		p.cache_creation_tokens, p.total_tokens, p.latency_ms,
+		`+usageeventcost.PassthroughColumnsSQL,
 		`e.timestamp_ms, coalesce(e.auth_file_snapshot, ''), coalesce(e.auth_index, ''),
 		coalesce(e.source, ''), coalesce(e.source_hash, ''),
 		coalesce(e.account_snapshot, ''), coalesce(e.auth_label_snapshot, ''),
@@ -328,7 +342,8 @@ func (r *repository) LoadCredentialTimeline(ctx context.Context, filter Analytic
 		coalesce(e.output_tokens, 0), coalesce(e.reasoning_tokens, 0),
 		coalesce(e.cached_tokens, 0), coalesce(e.cache_tokens, 0),
 		coalesce(e.cache_read_tokens, 0), coalesce(e.cache_creation_tokens, 0),
-		coalesce(e.total_tokens, 0), e.latency_ms`,
+		coalesce(e.total_tokens, 0), e.latency_ms,
+		`+usageeventcost.PassthroughColumnsSQL,
 		eventSourceOptions{ProjectionComplete: projectionComplete},
 	)
 	const credentialIDExpr = `coalesce(nullif(auth_file_snapshot, ''), nullif(auth_index, ''), nullif(source_hash, ''), nullif(source, ''), '-')`
@@ -366,7 +381,8 @@ func (r *repository) LoadCredentialTimeline(ctx context.Context, filter Analytic
 		coalesce(sum(total_tokens), 0),
 		coalesce(sum(case when latency_ms is not null and latency_ms != 0 then latency_ms else 0 end), 0),
 		count(nullif(latency_ms, 0)),
-		min(timestamp_ms)
+		min(timestamp_ms),
+		` + usageeventcost.SumSQL + `
 	from banded_events
 	group by bucket_ms, credential_id, auth_file_snapshot, auth_index, source, source_hash,
 		account_snapshot, auth_label_snapshot,
@@ -418,6 +434,9 @@ func (r *repository) LoadCredentialTimeline(ctx context.Context, filter Analytic
 			&row.LatencySumMS,
 			&row.LatencySamples,
 			&row.FirstTimestampMS,
+			&row.CostCNYNanos,
+			&row.CostUSDNanos,
+			&row.UnpricedCalls,
 		); err != nil {
 			return nil, state, false, err
 		}

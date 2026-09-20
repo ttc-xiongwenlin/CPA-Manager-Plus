@@ -306,6 +306,7 @@ func apiKeyTimelineFromHourRows(rows []store.UsageMonitoringAPIKeyTimelineHourRo
 		entry.point.LongCachedTokens += row.LongCachedTokens
 		entry.point.LongCacheReadTokens += row.LongCacheReadTokens
 		entry.point.LongCacheCreationTokens += row.LongCacheCreationTokens
+		entry.point.AddCost(row.CostTotals)
 		entry.point.LatencySamples += row.LatencySamples
 		entry.latencySumMS += row.LatencySumMS
 	}
@@ -447,6 +448,7 @@ func credentialTimelineFromHourRows(rows []store.UsageMonitoringCredentialTimeli
 		entry.point.LongCachedTokens += row.LongCachedTokens
 		entry.point.LongCacheReadTokens += row.LongCacheReadTokens
 		entry.point.LongCacheCreationTokens += row.LongCacheCreationTokens
+		entry.point.AddCost(row.CostTotals)
 		entry.point.LatencySamples += row.LatencySamples
 		entry.latencySumMS += row.LatencySumMS
 	}
@@ -530,6 +532,7 @@ func timelineFromHourRows(rows []store.UsageMonitoringTimelineHourRow, granulari
 		entry.point.LongCachedTokens += row.LongCachedTokens
 		entry.point.LongCacheReadTokens += row.LongCacheReadTokens
 		entry.point.LongCacheCreationTokens += row.LongCacheCreationTokens
+		entry.point.AddCost(row.CostTotals)
 		entry.point.LatencySamples += row.LatencySamples
 		entry.latencySumMS += row.LatencySumMS
 	}

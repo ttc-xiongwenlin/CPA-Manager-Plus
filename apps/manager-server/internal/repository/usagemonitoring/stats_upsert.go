@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/model"
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usageeventcost"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/usage"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/usageidentity"
 )
@@ -16,6 +17,7 @@ func monitoringBandedEventsCTE(whereClause string) string {
 	return fmt.Sprintf(`with base_events as (
 		select
 			e.*,
+			%s,
 			%s as requested_model_value,
 			%s as analytics_model_value,
 			coalesce(nullif(e.resolved_model, ''), %s) as billing_model_value,
@@ -27,6 +29,7 @@ func monitoringBandedEventsCTE(whereClause string) string {
 				0
 			) as compatible_cached_tokens_value
 		from usage_events e
+		%s
 		where %s
 	), priced_events as (
 		select
@@ -51,7 +54,7 @@ func monitoringBandedEventsCTE(whereClause string) string {
 					and priced_events.normalized_input_tokens_value > tier.threshold_tokens
 			), %d) as context_threshold_tokens_value
 		from priced_events
-	)`, requestedModelExpression, analyticsModelExpression, analyticsModelExpression, whereClause, model.ModelPriceBaseContextThreshold)
+	)`, usageeventcost.PassthroughColumnsSQL, requestedModelExpression, analyticsModelExpression, analyticsModelExpression, usageeventcost.JoinSQL("e"), whereClause, model.ModelPriceBaseContextThreshold)
 }
 
 func upsertAccountDailyBatch(ctx context.Context, tx *sql.Tx, revision string, afterID, throughID, nowMS int64) error {
@@ -65,6 +68,7 @@ func upsertAccountDailyBatch(ctx context.Context, tx *sql.Tx, revision string, a
 			cache_creation_tokens, long_input_tokens, long_output_tokens,
 			long_cached_tokens, long_cache_read_tokens, long_cache_creation_tokens,
 			total_tokens, zero_token_calls, latency_sum_ms, latency_samples,
+			cost_cny_nanos, cost_usd_nanos, unpriced_calls,
 			last_seen_ms, updated_at_ms
 	)
 	select
@@ -103,6 +107,7 @@ func upsertAccountDailyBatch(ctx context.Context, tx *sql.Tx, revision string, a
 			coalesce(sum(case when total_tokens = 0 and failed = 0 then 1 else 0 end), 0),
 			coalesce(sum(case when latency_ms is not null and latency_ms != 0 then latency_ms else 0 end), 0),
 		count(nullif(latency_ms, 0)),
+		`+usageeventcost.SumSQL+`,
 		max(timestamp_ms),
 		?
 	from banded_events
@@ -129,6 +134,9 @@ func upsertAccountDailyBatch(ctx context.Context, tx *sql.Tx, revision string, a
 			zero_token_calls = usage_monitoring_account_daily_rollups_v1.zero_token_calls + excluded.zero_token_calls,
 			latency_sum_ms = usage_monitoring_account_daily_rollups_v1.latency_sum_ms + excluded.latency_sum_ms,
 		latency_samples = usage_monitoring_account_daily_rollups_v1.latency_samples + excluded.latency_samples,
+		cost_cny_nanos = usage_monitoring_account_daily_rollups_v1.cost_cny_nanos + excluded.cost_cny_nanos,
+		cost_usd_nanos = usage_monitoring_account_daily_rollups_v1.cost_usd_nanos + excluded.cost_usd_nanos,
+		unpriced_calls = usage_monitoring_account_daily_rollups_v1.unpriced_calls + excluded.unpriced_calls,
 		last_seen_ms = max(usage_monitoring_account_daily_rollups_v1.last_seen_ms, excluded.last_seen_ms),
 		updated_at_ms = excluded.updated_at_ms`,
 		dayMS,
@@ -153,7 +161,8 @@ func upsertAPIKeyDailyBatch(ctx context.Context, tx *sql.Tx, revision string, af
 			reasoning_tokens, cache_read_tokens, cache_creation_tokens, long_input_tokens,
 			long_output_tokens, long_cached_tokens, long_cache_read_tokens,
 			long_cache_creation_tokens, total_tokens, zero_token_calls, latency_sum_ms,
-			latency_samples, last_seen_ms, updated_at_ms
+			latency_samples, cost_cny_nanos, cost_usd_nanos, unpriced_calls,
+			last_seen_ms, updated_at_ms
 	)
 	select
 		?,
@@ -191,6 +200,7 @@ func upsertAPIKeyDailyBatch(ctx context.Context, tx *sql.Tx, revision string, af
 			coalesce(sum(case when total_tokens = 0 and failed = 0 then 1 else 0 end), 0),
 			coalesce(sum(case when latency_ms is not null and latency_ms != 0 then latency_ms else 0 end), 0),
 		count(nullif(latency_ms, 0)),
+		`+usageeventcost.SumSQL+`,
 		max(timestamp_ms),
 		?
 	from banded_events
@@ -217,6 +227,9 @@ func upsertAPIKeyDailyBatch(ctx context.Context, tx *sql.Tx, revision string, af
 			zero_token_calls = usage_monitoring_api_key_daily_rollups_v1.zero_token_calls + excluded.zero_token_calls,
 			latency_sum_ms = usage_monitoring_api_key_daily_rollups_v1.latency_sum_ms + excluded.latency_sum_ms,
 		latency_samples = usage_monitoring_api_key_daily_rollups_v1.latency_samples + excluded.latency_samples,
+		cost_cny_nanos = usage_monitoring_api_key_daily_rollups_v1.cost_cny_nanos + excluded.cost_cny_nanos,
+		cost_usd_nanos = usage_monitoring_api_key_daily_rollups_v1.cost_usd_nanos + excluded.cost_usd_nanos,
+		unpriced_calls = usage_monitoring_api_key_daily_rollups_v1.unpriced_calls + excluded.unpriced_calls,
 		last_seen_ms = max(usage_monitoring_api_key_daily_rollups_v1.last_seen_ms, excluded.last_seen_ms),
 		updated_at_ms = excluded.updated_at_ms`,
 		dayMS,

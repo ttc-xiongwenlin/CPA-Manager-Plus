@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/repository/usageeventcost"
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/usageidentity"
 )
 
@@ -66,7 +67,8 @@ func mergeProjectedAccountWindowStats(ctx context.Context, tx *sql.Tx, windows [
 		coalesce(sum(case when normalized_total_input_tokens > ? then compatible_cached_tokens_value else 0 end), 0),
 		coalesce(sum(case when normalized_total_input_tokens > ? then cache_read_tokens else 0 end), 0),
 		coalesce(sum(case when normalized_total_input_tokens > ? then cache_creation_tokens else 0 end), 0),
-		coalesce(sum(total_tokens), 0), max(timestamp_ms)
+		coalesce(sum(total_tokens), 0), max(timestamp_ms),
+		`+usageeventcost.SumSQL+`
 	from banded_events
 	group by request_index, analytics_model, billing_model_value, pricing_model_value,
 		context_threshold_tokens_value, coalesce(service_tier, '')`, monitoringBandedProjectedEventsCTE(source))
@@ -107,7 +109,8 @@ func mergeStoredAccountWindowStats(ctx context.Context, tx *sql.Tx, revision str
 		coalesce(sum(d.cache_read_tokens), 0), coalesce(sum(d.cache_creation_tokens), 0),
 		coalesce(sum(d.long_input_tokens), 0), coalesce(sum(d.long_output_tokens), 0),
 		coalesce(sum(d.long_cached_tokens), 0), coalesce(sum(d.long_cache_read_tokens), 0),
-		coalesce(sum(d.long_cache_creation_tokens), 0), coalesce(sum(d.total_tokens), 0), max(d.last_seen_ms)
+		coalesce(sum(d.long_cache_creation_tokens), 0), coalesce(sum(d.total_tokens), 0), max(d.last_seen_ms),
+		coalesce(sum(d.cost_cny_nanos), 0), coalesce(sum(d.cost_usd_nanos), 0), coalesce(sum(d.unpriced_calls), 0)
 	from window_targets w
 	join usage_monitoring_account_daily_rollups_v1 d on d.structure_revision = ?
 		and d.bucket_ms >= w.full_start_ms and d.bucket_ms < w.full_end_ms and trim(d.auth_index) = w.auth_index
@@ -123,7 +126,7 @@ func mergeStoredAccountWindowStats(ctx context.Context, tx *sql.Tx, revision str
 func mergeAccountWindowStatRows(rows *sql.Rows, grouped map[accountWindowStatKey]*AccountWindowModelStat) error {
 	for rows.Next() {
 		var stat AccountWindowModelStat
-		if err := rows.Scan(&stat.RequestIndex, &stat.Model, &stat.BillingModel, &stat.PricingModel, &stat.ContextThresholdTokens, &stat.ServiceTier, &stat.Calls, &stat.SuccessCalls, &stat.FailureCalls, &stat.InputTokens, &stat.OutputTokens, &stat.CachedTokens, &stat.CacheReadTokens, &stat.CacheCreationTokens, &stat.LongInputTokens, &stat.LongOutputTokens, &stat.LongCachedTokens, &stat.LongCacheReadTokens, &stat.LongCacheCreationTokens, &stat.TotalTokens, &stat.LastSeenMS); err != nil {
+		if err := rows.Scan(&stat.RequestIndex, &stat.Model, &stat.BillingModel, &stat.PricingModel, &stat.ContextThresholdTokens, &stat.ServiceTier, &stat.Calls, &stat.SuccessCalls, &stat.FailureCalls, &stat.InputTokens, &stat.OutputTokens, &stat.CachedTokens, &stat.CacheReadTokens, &stat.CacheCreationTokens, &stat.LongInputTokens, &stat.LongOutputTokens, &stat.LongCachedTokens, &stat.LongCacheReadTokens, &stat.LongCacheCreationTokens, &stat.TotalTokens, &stat.LastSeenMS, &stat.CostCNYNanos, &stat.CostUSDNanos, &stat.UnpricedCalls); err != nil {
 			return err
 		}
 		key := accountWindowStatKey{requestIndex: stat.RequestIndex, model: stat.Model, billingModel: stat.BillingModel, pricingModel: stat.PricingModel, contextThreshold: stat.ContextThresholdTokens, serviceTier: stat.ServiceTier}
@@ -147,6 +150,7 @@ func mergeAccountWindowStatRows(rows *sql.Rows, grouped map[accountWindowStatKey
 		current.LongCacheReadTokens += stat.LongCacheReadTokens
 		current.LongCacheCreationTokens += stat.LongCacheCreationTokens
 		current.TotalTokens += stat.TotalTokens
+		current.AddCost(stat.CostTotals)
 		current.LastSeenMS = max(current.LastSeenMS, stat.LastSeenMS)
 	}
 	return rows.Err()
@@ -192,23 +196,27 @@ func accountWindowEventSourceSQL(windows []AccountWindowUsageQuery, coverageEven
 	rawIdentity := usageidentity.SQLAccountKeyExpression("e")
 	query := `with window_targets(request_index, from_ms, to_ms, full_start_ms, full_end_ms, account_key, legacy_account_key, use_daily) as (values ` + strings.Join(values, ",") + `)
 	select w.request_index, p.requested_model as model, p.analytics_model, p.resolved_model, p.service_tier, p.failed,
-		p.normalized_total_input_tokens, p.output_tokens, p.cached_tokens, p.cache_tokens, p.cache_read_tokens, p.cache_creation_tokens, p.total_tokens, p.timestamp_ms
+		p.normalized_total_input_tokens, p.output_tokens, p.cached_tokens, p.cache_tokens, p.cache_read_tokens, p.cache_creation_tokens, p.total_tokens, p.timestamp_ms,
+		` + usageeventcost.PassthroughColumnsSQL + `
 	from window_targets w join usage_monitoring_event_projection_v1 p on p.event_id <= ? and p.timestamp_ms >= w.from_ms and p.timestamp_ms < w.to_ms and p.account_key in (w.account_key, w.legacy_account_key)`
 	args = append(args, coverageEventID)
 	if dailyAvailable {
 		query += ` and (w.use_daily = 0 or p.timestamp_ms < w.full_start_ms or p.timestamp_ms >= w.full_end_ms or p.event_id > ?)`
 		args = append(args, statsCoverageEventID)
 	}
+	query += ` ` + projectionCostJoinSQL
 	if projectionComplete {
 		return query, args
 	}
-	query += ` union all select w.request_index, ` + usageidentity.SQLEffectiveRequestedModelExpression("e.model", "e.requested_model") + `, ` + usageidentity.SQLRequestAnalyticsModelExpression("e.model", "e.requested_model") + `, coalesce(e.resolved_model, ''), coalesce(e.service_tier, ''), coalesce(e.failed, 0), coalesce(e.normalized_total_input_tokens, e.input_tokens, 0), coalesce(e.output_tokens, 0), coalesce(e.cached_tokens, 0), coalesce(e.cache_tokens, 0), coalesce(e.cache_read_tokens, 0), coalesce(e.cache_creation_tokens, 0), coalesce(e.total_tokens, 0), e.timestamp_ms
+	query += ` union all select w.request_index, ` + usageidentity.SQLEffectiveRequestedModelExpression("e.model", "e.requested_model") + `, ` + usageidentity.SQLRequestAnalyticsModelExpression("e.model", "e.requested_model") + `, coalesce(e.resolved_model, ''), coalesce(e.service_tier, ''), coalesce(e.failed, 0), coalesce(e.normalized_total_input_tokens, e.input_tokens, 0), coalesce(e.output_tokens, 0), coalesce(e.cached_tokens, 0), coalesce(e.cache_tokens, 0), coalesce(e.cache_read_tokens, 0), coalesce(e.cache_creation_tokens, 0), coalesce(e.total_tokens, 0), e.timestamp_ms,
+		` + usageeventcost.PassthroughColumnsSQL + `
 	from window_targets w join usage_events e on e.id > ? and e.timestamp_ms >= w.from_ms and e.timestamp_ms < w.to_ms and ` + rawIdentity + ` in (w.account_key, w.legacy_account_key)`
 	args = append(args, coverageEventID)
 	if dailyAvailable {
 		query += ` and (w.use_daily = 0 or e.timestamp_ms < w.full_start_ms or e.timestamp_ms >= w.full_end_ms or e.id > ?)`
 		args = append(args, statsCoverageEventID)
 	}
+	query += ` ` + usageeventcost.JoinSQL("e")
 	return query, args
 }
 

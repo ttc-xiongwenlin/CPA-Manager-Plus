@@ -329,6 +329,7 @@ func addModelStat(grouped map[modelStatKey]*store.ModelStat, stat store.ModelSta
 	entry.LongCacheReadTokens += stat.LongCacheReadTokens
 	entry.LongCacheCreationTokens += stat.LongCacheCreationTokens
 	entry.TotalTokens += stat.TotalTokens
+	entry.AddCost(stat.CostTotals)
 }
 
 func sortedModelStats(grouped map[modelStatKey]*store.ModelStat) []store.ModelStat {
@@ -367,6 +368,7 @@ func modelStatsFromPricingRows(rows []store.UsagePricingHourlyRow) []store.Model
 		addModelStat(grouped, store.ModelStat{
 			LongContextTokens:   row.LongContextTokens,
 			PricingBand:         row.PricingBand,
+			CostTotals:          row.CostTotals,
 			Model:               row.Model,
 			BillingModel:        row.BillingModel,
 			ServiceTier:         row.ServiceTier,
@@ -414,6 +416,7 @@ func analyticsTimelineFromPricingRows(rows []store.UsagePricingHourlyRow, granul
 		point := store.TimelinePoint{
 			LongContextTokens:   row.LongContextTokens,
 			PricingBand:         row.PricingBand,
+			CostTotals:          row.CostTotals,
 			BucketMS:            usage.AnalyticsBucketMS(row.BucketMS, granularity, location),
 			Model:               row.Model,
 			BillingModel:        row.BillingModel,
@@ -465,6 +468,7 @@ func addAnalyticsTimelinePoint(grouped map[analyticsTimelineKey]*analyticsTimeli
 	entry.point.CachedTokens += point.CachedTokens
 	entry.point.CacheReadTokens += point.CacheReadTokens
 	entry.point.CacheCreationTokens += point.CacheCreationTokens
+	entry.point.AddCost(point.CostTotals)
 	entry.point.LongInputTokens += point.LongInputTokens
 	entry.point.LongOutputTokens += point.LongOutputTokens
 	entry.point.LongCachedTokens += point.LongCachedTokens
