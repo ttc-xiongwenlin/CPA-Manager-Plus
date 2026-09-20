@@ -16,6 +16,8 @@ export interface ProviderPriceWindow {
   /** Rate multiplier, > 0 (0.5 = half price, 2 = double). */
   multiplier: number;
   label?: string;
+  /** ISO weekdays 1 (Monday) .. 7 (Sunday) the window applies on; omitted/empty = every day. */
+  weekdays?: number[];
 }
 
 export interface ProviderModelPrice {
@@ -33,6 +35,8 @@ export interface ProviderModelPrice {
   timezone: string;
   note?: string;
   windows?: ProviderPriceWindow[];
+  /** `YYYY-MM-DD` dates (in `timezone`) on which no window applies: the whole day is base rate. */
+  offDays?: string[];
   updatedAtMs?: number;
 }
 

@@ -27,14 +27,18 @@ import {
   createProviderPriceDraft,
   formatCnyRate,
   formatRepriceProgressPercent,
+  formatWeekdaySummary,
   formatWindowBadge,
   groupProviderPrices,
+  ISO_WEEKDAYS,
   parseRepriceFromDate,
   providerPriceKey,
   removeProviderPrice,
+  toggleWeekday,
   upsertProviderPrice,
   type ProviderPriceDraft,
   type ProviderPriceWindowDraft,
+  type WeekdayLabels,
 } from './providerPricesPageModel';
 import styles from './ProviderPricesPage.module.scss';
 
@@ -54,6 +58,7 @@ export function ProviderPricesPage() {
   const datalistId = useId();
   const providerListId = `${datalistId}-providers`;
   const modelListId = `${datalistId}-models`;
+  const offDaysId = `${datalistId}-off-days`;
 
   const [prices, setPrices] = useState<ProviderModelPrice[]>([]);
   const [observed, setObserved] = useState<ObservedProviderModel[]>([]);
@@ -75,6 +80,15 @@ export function ProviderPricesPage() {
   );
   const repriceProgress = calculateRepriceProgress(repriceState);
   const repricing = repriceState?.repricing === true;
+  const weekdayLabels = useMemo<WeekdayLabels>(
+    () => ({
+      days: ISO_WEEKDAYS.map((day) => t(`provider_prices.weekday_${day}`)),
+      workdays: t('provider_prices.weekdays_workdays'),
+      weekend: t('provider_prices.weekdays_weekend'),
+      separator: t('provider_prices.weekday_separator'),
+    }),
+    [t]
+  );
 
   const refreshRepriceState = useCallback(
     async (signal?: AbortSignal) => {
@@ -163,11 +177,26 @@ export function ProviderPricesPage() {
     setDraft((previous) => ({ ...previous, [field]: value }));
   };
 
-  const setWindowField = (index: number, field: keyof ProviderPriceWindowDraft, value: string) => {
+  const setWindowField = (
+    index: number,
+    field: keyof Omit<ProviderPriceWindowDraft, 'id' | 'weekdays'>,
+    value: string
+  ) => {
     setDraft((previous) => ({
       ...previous,
       windows: previous.windows.map((window, windowIndex) =>
         windowIndex === index ? { ...window, [field]: value } : window
+      ),
+    }));
+  };
+
+  const toggleWindowWeekday = (index: number, day: number) => {
+    setDraft((previous) => ({
+      ...previous,
+      windows: previous.windows.map((window, windowIndex) =>
+        windowIndex === index
+          ? { ...window, weekdays: toggleWeekday(window.weekdays, day) }
+          : window
       ),
     }));
   };
@@ -438,6 +467,18 @@ export function ProviderPricesPage() {
                 value={draft.note}
                 onChange={(event) => setDraftField('note', event.target.value)}
               />
+              <div className={`form-group ${styles.offDaysField}`}>
+                <label htmlFor={offDaysId}>{t('provider_prices.off_days')}</label>
+                <textarea
+                  id={offDaysId}
+                  className={`input ${styles.compactInput}`}
+                  rows={2}
+                  value={draft.offDays}
+                  onChange={(event) => setDraftField('offDays', event.target.value)}
+                  placeholder="2026-01-01, 2026-10-01"
+                />
+                <div className="hint">{t('provider_prices.off_days_hint')}</div>
+              </div>
             </div>
 
             <div className={styles.windowsEditor}>
@@ -451,45 +492,74 @@ export function ProviderPricesPage() {
               </div>
               {draft.windows.map((window, index) => (
                 <div key={window.id ?? `new-${index}`} className={styles.windowRow}>
-                  <Input
-                    label={t('provider_prices.window_start')}
-                    className={styles.compactInput}
-                    value={window.start}
-                    onChange={(event) => setWindowField(index, 'start', event.target.value)}
-                    placeholder="00:30"
-                  />
-                  <Input
-                    label={t('provider_prices.window_end')}
-                    className={styles.compactInput}
-                    value={window.end}
-                    onChange={(event) => setWindowField(index, 'end', event.target.value)}
-                    placeholder="08:30"
-                  />
-                  <Input
-                    label={t('provider_prices.window_multiplier')}
-                    className={styles.compactInput}
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={window.multiplier}
-                    onChange={(event) => setWindowField(index, 'multiplier', event.target.value)}
-                    placeholder="0.5"
-                  />
-                  <Input
-                    label={t('provider_prices.window_label')}
-                    className={styles.compactInput}
-                    value={window.label}
-                    onChange={(event) => setWindowField(index, 'label', event.target.value)}
-                  />
-                  <button
-                    type="button"
-                    className={styles.iconAction}
-                    title={t('provider_prices.remove_window')}
-                    aria-label={t('provider_prices.remove_window')}
-                    onClick={() => removeWindow(index)}
-                  >
-                    <IconTrash2 size={14} />
-                  </button>
+                  <div className={styles.windowFields}>
+                    <Input
+                      label={t('provider_prices.window_start')}
+                      className={styles.compactInput}
+                      value={window.start}
+                      onChange={(event) => setWindowField(index, 'start', event.target.value)}
+                      placeholder="00:30"
+                    />
+                    <Input
+                      label={t('provider_prices.window_end')}
+                      className={styles.compactInput}
+                      value={window.end}
+                      onChange={(event) => setWindowField(index, 'end', event.target.value)}
+                      placeholder="08:30"
+                    />
+                    <Input
+                      label={t('provider_prices.window_multiplier')}
+                      className={styles.compactInput}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={window.multiplier}
+                      onChange={(event) => setWindowField(index, 'multiplier', event.target.value)}
+                      placeholder="0.5"
+                    />
+                    <Input
+                      label={t('provider_prices.window_label')}
+                      className={styles.compactInput}
+                      value={window.label}
+                      onChange={(event) => setWindowField(index, 'label', event.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className={styles.iconAction}
+                      title={t('provider_prices.remove_window')}
+                      aria-label={t('provider_prices.remove_window')}
+                      onClick={() => removeWindow(index)}
+                    >
+                      <IconTrash2 size={14} />
+                    </button>
+                  </div>
+                  <div className={styles.weekdayField}>
+                    <span className={styles.weekdayLabel}>{t('provider_prices.weekdays')}</span>
+                    <div
+                      className={styles.weekdayToggles}
+                      role="group"
+                      aria-label={t('provider_prices.weekdays')}
+                    >
+                      {ISO_WEEKDAYS.map((day) => {
+                        const selected = window.weekdays.includes(day);
+                        return (
+                          <button
+                            key={day}
+                            type="button"
+                            className={`${styles.weekdayToggle} ${selected ? styles.weekdayToggleOn : ''}`}
+                            aria-pressed={selected}
+                            onClick={() => toggleWindowWeekday(index, day)}
+                          >
+                            {weekdayLabels.days[day - 1]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <span className={styles.mutedText}>
+                      {formatWeekdaySummary(window.weekdays, weekdayLabels) ||
+                        t('provider_prices.weekdays_every_day')}
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -554,19 +624,26 @@ export function ProviderPricesPage() {
                           {renderCacheRate(price.cacheCreation, price.cacheCreationConfigured)}
                         </td>
                         <td className={styles.windowCell}>
-                          {price.windows?.length ? (
-                            <div className={styles.windowList}>
-                              {price.windows.map((window, index) => (
+                          <div className={styles.windowList}>
+                            {price.windows?.length ? (
+                              price.windows.map((window, index) => (
                                 <span key={window.id ?? index} className={styles.windowBadge}>
-                                  {formatWindowBadge(window)}
+                                  {formatWindowBadge(window, weekdayLabels)}
                                 </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className={styles.mutedText}>
-                              {t('provider_prices.no_windows')}
-                            </span>
-                          )}
+                              ))
+                            ) : (
+                              <span className={styles.mutedText}>
+                                {t('provider_prices.no_windows')}
+                              </span>
+                            )}
+                            {price.offDays?.length ? (
+                              <span className={styles.offDaysPill} title={price.offDays.join(', ')}>
+                                {t('provider_prices.off_days_count', {
+                                  count: price.offDays.length,
+                                })}
+                              </span>
+                            ) : null}
+                          </div>
                         </td>
                         <td className={styles.timezoneCell}>{price.timezone}</td>
                         <td className={styles.actionsCell}>

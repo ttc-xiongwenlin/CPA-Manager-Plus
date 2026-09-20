@@ -265,9 +265,77 @@
 
 .windowRow {
   display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--pricing-line);
+  border-radius: 10px;
+  background: var(--pricing-surface);
+}
+
+.windowFields {
+  display: grid;
   grid-template-columns: repeat(4, minmax(110px, 1fr)) auto;
   align-items: end;
   gap: 8px;
+}
+
+.weekdayField {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.weekdayLabel {
+  color: var(--pricing-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.weekdayToggles {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.weekdayToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--pricing-line);
+  border-radius: 8px;
+  background: var(--pricing-surface-elevated);
+  color: var(--pricing-muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.weekdayToggle:hover {
+  border-color: color-mix(in srgb, var(--pricing-accent) 35%, var(--pricing-line-strong));
+  color: var(--pricing-ink);
+}
+
+.weekdayToggleOn,
+.weekdayToggleOn:hover {
+  border-color: color-mix(in srgb, var(--pricing-accent) 45%, var(--pricing-line-strong));
+  background: color-mix(in srgb, var(--pricing-accent) 12%, var(--pricing-surface));
+  color: var(--pricing-accent-strong);
+}
+
+.offDaysField {
+  grid-column: 1 / -1;
+}
+
+.offDaysField textarea {
+  font-family: var(--font-mono);
+  resize: vertical;
 }
 
 .editorActions {
@@ -359,6 +427,20 @@
   white-space: nowrap;
 }
 
+.offDaysPill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 6px;
+  border: 1px solid color-mix(in srgb, var(--warning-color) 35%, var(--pricing-line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warning-color) 8%, var(--pricing-surface));
+  color: var(--pricing-muted);
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: help;
+}
+
 .timezoneCell {
   color: var(--pricing-muted);
   font-family: var(--font-mono);
@@ -438,7 +520,7 @@
     grid-template-columns: repeat(2, minmax(140px, 1fr));
   }
 
-  .windowRow {
+  .windowFields {
     grid-template-columns: repeat(2, minmax(110px, 1fr)) auto;
   }
 }
@@ -451,7 +533,7 @@
   }
 
   .editorGrid,
-  .windowRow {
+  .windowFields {
     grid-template-columns: 1fr;
   }
 }

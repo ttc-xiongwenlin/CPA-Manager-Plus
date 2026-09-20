@@ -13,16 +13,29 @@ import {
   createEmptyProviderPriceDraft,
   createProviderPriceDraft,
   formatCnyRate,
+  formatOffDaysDraft,
   formatRepriceProgressPercent,
+  formatWeekdaySummary,
   formatWindowBadge,
   formatWindowMinute,
   groupProviderPrices,
+  isValidOffDay,
+  normalizeWeekdays,
+  parseOffDays,
   parseRepriceFromDate,
   parseWindowEndMinute,
   parseWindowStartMinute,
   removeProviderPrice,
+  toggleWeekday,
   upsertProviderPrice,
+  type WeekdayLabels,
 } from './providerPricesPageModel';
+
+const weekdayLabels: WeekdayLabels = {
+  days: ['一', '二', '三', '四', '五', '六', '日'],
+  workdays: '工作日',
+  weekend: '周末',
+};
 
 const deepseekChat: ProviderModelPrice = {
   id: 1,
@@ -36,7 +49,11 @@ const deepseekChat: ProviderModelPrice = {
   cacheCreationConfigured: false,
   timezone: 'Asia/Shanghai',
   note: '官网价',
-  windows: [{ id: 7, startMinute: 30, endMinute: 510, multiplier: 0.5, label: '夜间' }],
+  windows: [
+    { id: 7, startMinute: 30, endMinute: 510, multiplier: 0.5, label: '夜间' },
+    { id: 8, startMinute: 0, endMinute: 1440, multiplier: 0.5, weekdays: [6, 7] },
+  ],
+  offDays: ['2026-01-01', '2026-10-01'],
 };
 
 const baiduErnie: ProviderModelPrice = {
@@ -79,12 +96,87 @@ describe('window minute conversion', () => {
   });
 
   it('formats window badges', () => {
-    expect(formatWindowBadge({ startMinute: 30, endMinute: 510, multiplier: 0.5 })).toBe(
-      '00:30–08:30 ×0.5'
-    );
     expect(
-      formatWindowBadge({ startMinute: 1080, endMinute: 1440, multiplier: 2, label: '峰时' })
+      formatWindowBadge({ startMinute: 30, endMinute: 510, multiplier: 0.5 }, weekdayLabels)
+    ).toBe('00:30–08:30 ×0.5');
+    expect(
+      formatWindowBadge(
+        { startMinute: 1080, endMinute: 1440, multiplier: 2, label: '峰时' },
+        weekdayLabels
+      )
     ).toBe('18:00–00:00 ×2 峰时');
+    expect(
+      formatWindowBadge(
+        { startMinute: 0, endMinute: 1440, multiplier: 0.5, weekdays: [7, 6], label: '周末' },
+        weekdayLabels
+      )
+    ).toBe('周末 00:00–00:00 ×0.5 周末');
+    expect(
+      formatWindowBadge(
+        { startMinute: 540, endMinute: 1080, multiplier: 1.5, weekdays: [1, 3, 5] },
+        weekdayLabels
+      )
+    ).toBe('一三五 09:00–18:00 ×1.5');
+  });
+});
+
+describe('weekdays', () => {
+  it('normalizes to sorted unique ISO weekdays', () => {
+    expect(normalizeWeekdays(undefined)).toEqual([]);
+    expect(normalizeWeekdays([5, 1, 5, 0, 8, 2.5, 7])).toEqual([1, 5, 7]);
+  });
+
+  it('toggles a day in and out', () => {
+    expect(toggleWeekday([], 3)).toEqual([3]);
+    expect(toggleWeekday([3, 1], 2)).toEqual([1, 2, 3]);
+    expect(toggleWeekday([1, 2, 3], 2)).toEqual([1, 3]);
+  });
+
+  it('summarizes weekday sets', () => {
+    expect(formatWeekdaySummary(undefined, weekdayLabels)).toBe('');
+    expect(formatWeekdaySummary([], weekdayLabels)).toBe('');
+    expect(formatWeekdaySummary([1, 2, 3, 4, 5, 6, 7], weekdayLabels)).toBe('');
+    expect(formatWeekdaySummary([1, 2, 3, 4, 5], weekdayLabels)).toBe('工作日');
+    expect(formatWeekdaySummary([7, 6], weekdayLabels)).toBe('周末');
+    expect(formatWeekdaySummary([5, 1, 3], weekdayLabels)).toBe('一三五');
+    expect(formatWeekdaySummary([1, 2, 3, 4, 5, 6], weekdayLabels)).toBe('一二三四五六');
+    expect(
+      formatWeekdaySummary([1, 3], {
+        days: ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'],
+        workdays: 'Weekdays',
+        weekend: 'Weekend',
+        separator: ' ',
+      })
+    ).toBe('Mo We');
+  });
+});
+
+describe('off days', () => {
+  it('accepts only real YYYY-MM-DD dates', () => {
+    expect(isValidOffDay('2026-01-01')).toBe(true);
+    expect(isValidOffDay('2024-02-29')).toBe(true);
+    expect(isValidOffDay('2026-02-29')).toBe(false);
+    expect(isValidOffDay('2026-13-01')).toBe(false);
+    expect(isValidOffDay('2026-1-1')).toBe(false);
+    expect(isValidOffDay('2026/01/01')).toBe(false);
+    expect(isValidOffDay('')).toBe(false);
+  });
+
+  it('parses separated dates into a sorted unique list', () => {
+    expect(parseOffDays('')).toEqual([]);
+    expect(parseOffDays(' \n ')).toEqual([]);
+    expect(parseOffDays('2026-10-01, 2026-01-01\n2026-10-01，2026-05-01')).toEqual([
+      '2026-01-01',
+      '2026-05-01',
+      '2026-10-01',
+    ]);
+    expect(parseOffDays('2026-01-01, nope')).toBeNull();
+    expect(parseOffDays('2026-02-30')).toBeNull();
+  });
+
+  it('formats the list back into the draft field', () => {
+    expect(formatOffDaysDraft(undefined)).toBe('');
+    expect(formatOffDaysDraft(['2026-01-01', '2026-10-01'])).toBe('2026-01-01, 2026-10-01');
   });
 });
 
@@ -109,10 +201,36 @@ describe('provider price drafts', () => {
       cacheCreation: '',
       timezone: 'Asia/Shanghai',
       note: '官网价',
-      windows: [{ id: 7, start: '00:30', end: '08:30', multiplier: '0.5', label: '夜间' }],
+      windows: [
+        { id: 7, start: '00:30', end: '08:30', multiplier: '0.5', label: '夜间', weekdays: [] },
+        { id: 8, start: '00:00', end: '00:00', multiplier: '0.5', label: '', weekdays: [6, 7] },
+      ],
+      offDays: '2026-01-01, 2026-10-01',
     });
 
     expect(buildProviderPriceFromDraft(draft)).toEqual({ price: deepseekChat });
+  });
+
+  it('sorts and dedupes weekdays and off days, omitting them when empty', () => {
+    const result = buildProviderPriceFromDraft({
+      ...createEmptyProviderPriceDraft({ provider: 'codex', model: 'gpt-5.5' }),
+      windows: [
+        { start: '09:00', end: '18:00', multiplier: '1.5', label: '', weekdays: [5, 1, 5] },
+        { start: '18:00', end: '09:00', multiplier: '1', label: '', weekdays: [] },
+      ],
+      offDays: '2026-10-01\n2026-01-01, 2026-10-01',
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.price?.windows).toEqual([
+      { startMinute: 540, endMinute: 1080, multiplier: 1.5, weekdays: [1, 5] },
+      { startMinute: 1080, endMinute: 540, multiplier: 1 },
+    ]);
+    expect(result.price?.offDays).toEqual(['2026-01-01', '2026-10-01']);
+    expect(
+      buildProviderPriceFromDraft(createEmptyProviderPriceDraft({ provider: 'a', model: 'b' }))
+        .price
+    ).not.toHaveProperty('offDays');
   });
 
   it('sends configured=false for empty cache rates and defaults the timezone', () => {
@@ -120,7 +238,7 @@ describe('provider price drafts', () => {
       ...createEmptyProviderPriceDraft({ provider: ' codex ', model: ' gpt-5.5 ' }),
       prompt: '1.5',
       completion: '',
-      windows: [{ start: '18:00', end: '00:00', multiplier: '2', label: ' 峰时 ' }],
+      windows: [{ start: '18:00', end: '00:00', multiplier: '2', label: ' 峰时 ', weekdays: [] }],
     });
 
     expect(result.error).toBeUndefined();
@@ -158,7 +276,16 @@ describe('provider price drafts', () => {
         ...base,
         provider: 'codex',
         model: 'm',
-        windows: [{ start: '9', end: '10:00', multiplier: '1', label: '' }],
+        offDays: '2026-02-30',
+        windows: [{ start: '9', end: '10:00', multiplier: '1', label: '', weekdays: [] }],
+      }).error
+    ).toBe('off_day_invalid');
+    expect(
+      buildProviderPriceFromDraft({
+        ...base,
+        provider: 'codex',
+        model: 'm',
+        windows: [{ start: '9', end: '10:00', multiplier: '1', label: '', weekdays: [] }],
       }).error
     ).toBe('window_time_invalid');
     expect(
@@ -166,7 +293,7 @@ describe('provider price drafts', () => {
         ...base,
         provider: 'codex',
         model: 'm',
-        windows: [{ start: '09:00', end: '10:00', multiplier: '0', label: '' }],
+        windows: [{ start: '09:00', end: '10:00', multiplier: '0', label: '', weekdays: [] }],
       }).error
     ).toBe('window_multiplier_invalid');
   });

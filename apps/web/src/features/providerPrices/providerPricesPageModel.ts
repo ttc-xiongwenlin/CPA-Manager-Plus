@@ -14,6 +14,8 @@ export type ProviderPriceWindowDraft = {
   end: string;
   multiplier: string;
   label: string;
+  /** ISO weekdays 1..7 (sorted, unique); empty = every day. */
+  weekdays: number[];
 };
 
 export type ProviderPriceDraft = {
@@ -27,6 +29,8 @@ export type ProviderPriceDraft = {
   timezone: string;
   note: string;
   windows: ProviderPriceWindowDraft[];
+  /** Comma- or newline-separated `YYYY-MM-DD` dates. */
+  offDays: string;
 };
 
 export type ProviderPriceDraftError =
@@ -34,6 +38,7 @@ export type ProviderPriceDraftError =
   | 'model_required'
   | 'rate_invalid'
   | 'timezone_required'
+  | 'off_day_invalid'
   | 'window_time_invalid'
   | 'window_multiplier_invalid';
 
@@ -86,12 +91,97 @@ export const formatWindowMultiplier = (multiplier: number): string => {
   return String(Number(value.toFixed(4)));
 };
 
-/** e.g. `00:30–08:30 ×0.5`; the label, when present, is appended after a space. */
-export const formatWindowBadge = (window: ProviderPriceWindow): string => {
+/** ISO weekdays, Monday (1) through Sunday (7). */
+export const ISO_WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const;
+
+const WORKDAYS = [1, 2, 3, 4, 5];
+const WEEKEND = [6, 7];
+
+/** Sorted, unique ISO weekdays 1..7; anything else is dropped. */
+export const normalizeWeekdays = (weekdays: readonly number[] | undefined | null): number[] =>
+  Array.from(
+    new Set((weekdays ?? []).filter((day) => Number.isInteger(day) && day >= 1 && day <= 7))
+  ).sort((left, right) => left - right);
+
+export const toggleWeekday = (weekdays: readonly number[], day: number): number[] => {
+  const current = normalizeWeekdays(weekdays);
+  return current.includes(day)
+    ? current.filter((item) => item !== day)
+    : normalizeWeekdays([...current, day]);
+};
+
+export type WeekdayLabels = {
+  /** Short day names indexed by ISO weekday - 1 (Monday first). */
+  days: readonly string[];
+  workdays: string;
+  weekend: string;
+  /** Placed between day names when individual days are listed; default none (`一三五`). */
+  separator?: string;
+};
+
+const sameDays = (left: readonly number[], right: readonly number[]) =>
+  left.length === right.length && left.every((day, index) => day === right[index]);
+
+/**
+ * '' when the window applies every day (no weekdays, or all seven); otherwise the workdays /
+ * weekend label, or the listed day names (e.g. `一三五`).
+ */
+export const formatWeekdaySummary = (
+  weekdays: readonly number[] | undefined,
+  labels: WeekdayLabels
+): string => {
+  const days = normalizeWeekdays(weekdays);
+  if (days.length === 0 || days.length === ISO_WEEKDAYS.length) return '';
+  if (sameDays(days, WORKDAYS)) return labels.workdays;
+  if (sameDays(days, WEEKEND)) return labels.weekend;
+  return days.map((day) => labels.days[day - 1] ?? String(day)).join(labels.separator ?? '');
+};
+
+/**
+ * e.g. `工作日 00:30–08:30 ×0.5 夜间`: the weekday summary (omitted for every day) and the label
+ * (when present) wrap the time range.
+ */
+export const formatWindowBadge = (
+  window: ProviderPriceWindow,
+  weekdayLabels: WeekdayLabels
+): string => {
   const range = `${formatWindowMinute(window.startMinute)}–${formatWindowMinute(window.endMinute)} ×${formatWindowMultiplier(window.multiplier)}`;
   const label = window.label?.trim();
-  return label ? `${range} ${label}` : range;
+  return [formatWeekdaySummary(window.weekdays, weekdayLabels), range, label]
+    .filter(Boolean)
+    .join(' ');
 };
+
+const OFF_DAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** `YYYY-MM-DD` naming a real calendar date (`2026-02-30` is rejected). */
+export const isValidOffDay = (value: string): boolean => {
+  const match = OFF_DAY_PATTERN.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+  );
+};
+
+/**
+ * Comma-, semicolon-, whitespace- or newline-separated dates -> sorted unique `YYYY-MM-DD`
+ * list; null when any entry is not a real date.
+ */
+export const parseOffDays = (value: string): string[] | null => {
+  const entries = value
+    .split(/[\s,，;；]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (entries.some((entry) => !isValidOffDay(entry))) return null;
+  return Array.from(new Set(entries)).sort();
+};
+
+export const formatOffDaysDraft = (offDays: readonly string[] | undefined): string =>
+  (offDays ?? []).join(', ');
 
 /** CNY per 1M tokens, e.g. `¥2.0000/1M`. */
 export const formatCnyRate = (value: number | undefined | null): string => {
@@ -114,6 +204,7 @@ export const createEmptyProviderPriceDraft = (
   timezone: DEFAULT_PROVIDER_PRICE_TIMEZONE,
   note: '',
   windows: [],
+  offDays: '',
 });
 
 export const createEmptyWindowDraft = (): ProviderPriceWindowDraft => ({
@@ -121,6 +212,7 @@ export const createEmptyWindowDraft = (): ProviderPriceWindowDraft => ({
   end: '',
   multiplier: '1',
   label: '',
+  weekdays: [],
 });
 
 export const createProviderPriceDraft = (price: ProviderModelPrice): ProviderPriceDraft => ({
@@ -139,7 +231,9 @@ export const createProviderPriceDraft = (price: ProviderModelPrice): ProviderPri
     end: formatWindowMinute(window.endMinute),
     multiplier: formatWindowMultiplier(window.multiplier),
     label: window.label ?? '',
+    weekdays: normalizeWeekdays(window.weekdays),
   })),
+  offDays: formatOffDaysDraft(price.offDays),
 });
 
 const parseRate = (value: string): number | null => {
@@ -174,6 +268,9 @@ export const buildProviderPriceFromDraft = (
   const timezone = draft.timezone.trim();
   if (!timezone) return { error: 'timezone_required' };
 
+  const offDays = parseOffDays(draft.offDays);
+  if (offDays === null) return { error: 'off_day_invalid' };
+
   const windows: ProviderPriceWindow[] = [];
   for (const window of draft.windows) {
     const startMinute = parseWindowStartMinute(window.start);
@@ -184,12 +281,14 @@ export const buildProviderPriceFromDraft = (
       return { error: 'window_multiplier_invalid' };
     }
     const label = window.label.trim();
+    const weekdays = normalizeWeekdays(window.weekdays);
     windows.push({
       ...(window.id !== undefined ? { id: window.id } : {}),
       startMinute,
       endMinute,
       multiplier,
       ...(label ? { label } : {}),
+      ...(weekdays.length ? { weekdays } : {}),
     });
   }
 
@@ -208,6 +307,7 @@ export const buildProviderPriceFromDraft = (
       timezone,
       ...(note ? { note } : {}),
       windows,
+      ...(offDays.length ? { offDays } : {}),
     },
   };
 };
