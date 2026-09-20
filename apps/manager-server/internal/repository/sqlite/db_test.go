@@ -30,6 +30,7 @@ func TestDataSourceNameEncodesWindowsDrivePath(t *testing.T) {
 		"busy_timeout(5000)",
 		"foreign_keys(1)",
 		"synchronous(FULL)",
+		"cache_size(-65536)",
 	}
 	if pragmas := parsed.Query()["_pragma"]; !slices.Equal(pragmas, wantPragmas) {
 		t.Fatalf("pragmas = %q, want %q", pragmas, wantPragmas)

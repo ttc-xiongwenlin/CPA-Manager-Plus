@@ -59,6 +59,12 @@ func dataSourceName(path string) string {
 	query.Add("_pragma", "busy_timeout(5000)")
 	query.Add("_pragma", "foreign_keys(1)")
 	query.Add("_pragma", "synchronous(FULL)")
+	// 64MB page cache per connection (default 2000 pages = 8MB). The sorter
+	// budget for GROUP BY / ORDER BY temp b-trees follows cache_size, so the
+	// analytics scans over a 30-day filter window (1M projection rows) spilled
+	// to disk: measured 9.0s at the default vs 2.0s at 64MB on the production
+	// 27GB usage.sqlite. Bounded by the connection pool (4 x 64MB).
+	query.Add("_pragma", "cache_size(-65536)")
 	dsn.RawQuery = query.Encode()
 	return dsn.String()
 }

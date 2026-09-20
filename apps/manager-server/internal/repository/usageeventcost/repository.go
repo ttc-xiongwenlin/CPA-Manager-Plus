@@ -416,9 +416,14 @@ func latestEventID(ctx context.Context, db RowQuerier) (int64, error) {
 	return id, err
 }
 
+// firstEventIDAtOrAfter returns the lowest event id stamped at or after
+// timestampMS. min(+id) disables SQLite's min(rowid) shortcut, which walks the
+// wide usage_events rows in rowid order until one matches: measured 30s on a
+// 1.86M-row 27GB usage.sqlite for a 30-day window, against 0.03s through the
+// covering timestamp index that the plain WHERE range picks instead.
 func firstEventIDAtOrAfter(ctx context.Context, db RowQuerier, timestampMS int64) (int64, error) {
 	var id int64
-	err := db.QueryRowContext(ctx, `select coalesce(min(id), 0) from usage_events where timestamp_ms >= ?`, timestampMS).Scan(&id)
+	err := db.QueryRowContext(ctx, `select coalesce(min(+id), 0) from usage_events where timestamp_ms >= ?`, timestampMS).Scan(&id)
 	return id, err
 }
 

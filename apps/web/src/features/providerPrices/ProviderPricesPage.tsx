@@ -64,6 +64,7 @@ export function ProviderPricesPage() {
   const [observed, setObserved] = useState<ObservedProviderModel[]>([]);
   const [repriceState, setRepriceState] = useState<RepriceState | null>(null);
   const [loading, setLoading] = useState(false);
+  const [observedLoading, setObservedLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [repriceStarting, setRepriceStarting] = useState(false);
   const [repriceFromDate, setRepriceFromDate] = useState('');
@@ -110,33 +111,39 @@ export function ProviderPricesPage() {
       setObserved([]);
       setRepriceState(null);
       setLoading(false);
+      setObservedLoading(false);
       return () => controller.abort();
     }
 
+    // The rules render as soon as they arrive; the observed-model scan is
+    // slower and only feeds the unpriced chips and editor suggestions.
     setLoading(true);
-    void Promise.all([
-      getProviderPrices(serviceBase, managementKey, controller.signal)
-        .then((response) => {
-          if (!controller.signal.aborted) setPrices(response.prices);
-        })
-        .catch((error: unknown) => {
-          if (controller.signal.aborted) return;
-          showNotification(
-            `${t('provider_prices.load_failed')}: ${resolveErrorMessage(error, t('common.unknown_error'))}`,
-            'error'
-          );
-        }),
-      getObservedProviderModels(serviceBase, managementKey, controller.signal)
-        .then((response) => {
-          if (!controller.signal.aborted) setObserved(response.items);
-        })
-        .catch(() => {
-          if (!controller.signal.aborted) setObserved([]);
-        }),
-      refreshRepriceState(controller.signal),
-    ]).finally(() => {
-      if (!controller.signal.aborted) setLoading(false);
-    });
+    void getProviderPrices(serviceBase, managementKey, controller.signal)
+      .then((response) => {
+        if (!controller.signal.aborted) setPrices(response.prices);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        showNotification(
+          `${t('provider_prices.load_failed')}: ${resolveErrorMessage(error, t('common.unknown_error'))}`,
+          'error'
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    setObservedLoading(true);
+    void getObservedProviderModels(serviceBase, managementKey, controller.signal)
+      .then((response) => {
+        if (!controller.signal.aborted) setObserved(response.items);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setObserved([]);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setObservedLoading(false);
+      });
+    void refreshRepriceState(controller.signal);
 
     return () => controller.abort();
   }, [managementKey, refreshRepriceState, serviceBase, showNotification, t]);
@@ -684,7 +691,9 @@ export function ProviderPricesPage() {
           <strong>{t('provider_prices.unpriced_title')}</strong>
           <span className={styles.mutedText}>{t('provider_prices.unpriced_hint')}</span>
         </div>
-        {unpriced.length === 0 ? (
+        {observedLoading ? (
+          <div className={styles.emptyState}>{t('common.loading')}</div>
+        ) : unpriced.length === 0 ? (
           <div className={styles.emptyState}>{t('provider_prices.unpriced_empty')}</div>
         ) : (
           <div className={styles.chipList}>
