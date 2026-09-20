@@ -76,6 +76,7 @@ type HourlyFilter struct {
 type HourlyRow struct {
 	usage.LongContextTokens
 	usage.PricingBand
+	usage.CostTotals
 	BucketMS            int64
 	Model               string
 	BillingModel        string
@@ -97,6 +98,7 @@ type HourlyRow struct {
 type AccountRow struct {
 	usage.LongContextTokens
 	usage.PricingBand
+	usage.CostTotals
 	AccountKey           string
 	AccountSnapshot      string
 	AuthLabelSnapshot    string
@@ -557,6 +559,7 @@ func bandedEventsCTE(whereClause string) string {
 	return fmt.Sprintf(`with base_events as (
 		select
 			e.*,
+			%s,
 			%s as requested_model_value,
 			%s as analytics_model_value,
 			coalesce(nullif(e.resolved_model, ''), %s) as billing_model_value,
@@ -569,6 +572,7 @@ func bandedEventsCTE(whereClause string) string {
 			) as compatible_cached_tokens_value,
 			%s as account_key_value
 		from usage_events e
+		%s
 		where %s
 	), priced_events as (
 		select
@@ -593,7 +597,7 @@ func bandedEventsCTE(whereClause string) string {
 					and priced_events.normalized_input_tokens_value > tier.threshold_tokens
 			), %d) as context_threshold_tokens_value
 		from priced_events
-		)`, requestedModelExpression, analyticsModelExpression, analyticsModelExpression, accountKeyExpression, whereClause, model.ModelPriceBaseContextThreshold)
+		)`, usageeventcost.PassthroughColumnsSQL, requestedModelExpression, analyticsModelExpression, analyticsModelExpression, accountKeyExpression, usageeventcost.JoinSQL("e"), whereClause, model.ModelPriceBaseContextThreshold)
 }
 
 func upsertHourlyBatch(ctx context.Context, tx *sql.Tx, revision string, afterID, throughID, nowMS int64) error {
@@ -605,7 +609,8 @@ func upsertHourlyBatch(ctx context.Context, tx *sql.Tx, revision string, afterID
 		cache_read_tokens, cache_creation_tokens,
 		long_input_tokens, long_output_tokens, long_cached_tokens,
 		long_cache_read_tokens, long_cache_creation_tokens,
-		total_tokens, latency_sum_ms, latency_samples, zero_token_calls, updated_at_ms
+		total_tokens, latency_sum_ms, latency_samples, zero_token_calls,
+		cost_cny_nanos, cost_usd_nanos, unpriced_calls, updated_at_ms
 	)
 	select
 		?,
@@ -632,6 +637,7 @@ func upsertHourlyBatch(ctx context.Context, tx *sql.Tx, revision string, afterID
 		coalesce(sum(case when latency_ms is not null and latency_ms != 0 then latency_ms else 0 end), 0),
 		count(nullif(latency_ms, 0)),
 		coalesce(sum(case when total_tokens = 0 and failed = 0 then 1 else 0 end), 0),
+		`+usageeventcost.SumSQL+`,
 		?
 	from banded_events
 	group by 2, 3, 4, 5, 6, 7, 8
@@ -655,6 +661,9 @@ func upsertHourlyBatch(ctx context.Context, tx *sql.Tx, revision string, afterID
 		latency_sum_ms = usage_pricing_hourly_rollups_v1.latency_sum_ms + excluded.latency_sum_ms,
 		latency_samples = usage_pricing_hourly_rollups_v1.latency_samples + excluded.latency_samples,
 		zero_token_calls = usage_pricing_hourly_rollups_v1.zero_token_calls + excluded.zero_token_calls,
+		cost_cny_nanos = usage_pricing_hourly_rollups_v1.cost_cny_nanos + excluded.cost_cny_nanos,
+		cost_usd_nanos = usage_pricing_hourly_rollups_v1.cost_usd_nanos + excluded.cost_usd_nanos,
+		unpriced_calls = usage_pricing_hourly_rollups_v1.unpriced_calls + excluded.unpriced_calls,
 		updated_at_ms = excluded.updated_at_ms`,
 		hourMS,
 		usage.LongContextInputTokenThreshold,
@@ -677,6 +686,7 @@ func upsertAccountBatch(ctx context.Context, tx *sql.Tx, revision string, afterI
 		reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens,
 		long_input_tokens, long_output_tokens, long_cached_tokens,
 		long_cache_read_tokens, long_cache_creation_tokens, total_tokens,
+		cost_cny_nanos, cost_usd_nanos, unpriced_calls,
 		first_seen_ms, last_seen_ms, updated_at_ms
 	)
 	select
@@ -708,6 +718,7 @@ func upsertAccountBatch(ctx context.Context, tx *sql.Tx, revision string, afterI
 		coalesce(sum(case when normalized_input_tokens_value > %d then cache_read_tokens else 0 end), 0),
 		coalesce(sum(case when normalized_input_tokens_value > %d then cache_creation_tokens else 0 end), 0),
 		coalesce(sum(total_tokens), 0),
+			`+usageeventcost.SumSQL+`,
 			min(timestamp_ms),
 			max(timestamp_ms),
 			?
@@ -741,6 +752,9 @@ func upsertAccountBatch(ctx context.Context, tx *sql.Tx, revision string, afterI
 		long_cache_read_tokens = usage_pricing_account_rollups_v1.long_cache_read_tokens + excluded.long_cache_read_tokens,
 		long_cache_creation_tokens = usage_pricing_account_rollups_v1.long_cache_creation_tokens + excluded.long_cache_creation_tokens,
 		total_tokens = usage_pricing_account_rollups_v1.total_tokens + excluded.total_tokens,
+		cost_cny_nanos = usage_pricing_account_rollups_v1.cost_cny_nanos + excluded.cost_cny_nanos,
+		cost_usd_nanos = usage_pricing_account_rollups_v1.cost_usd_nanos + excluded.cost_usd_nanos,
+		unpriced_calls = usage_pricing_account_rollups_v1.unpriced_calls + excluded.unpriced_calls,
 		first_seen_ms = min(usage_pricing_account_rollups_v1.first_seen_ms, excluded.first_seen_ms),
 		last_seen_ms = max(usage_pricing_account_rollups_v1.last_seen_ms, excluded.last_seen_ms),
 		updated_at_ms = excluded.updated_at_ms`,
@@ -839,7 +853,8 @@ func mergeStoredHourlyRows(
 		sum(cached_tokens), sum(cache_read_tokens), sum(cache_creation_tokens),
 		sum(long_input_tokens), sum(long_output_tokens), sum(long_cached_tokens),
 		sum(long_cache_read_tokens), sum(long_cache_creation_tokens),
-		sum(total_tokens), sum(latency_sum_ms), sum(latency_samples), sum(zero_token_calls)
+		sum(total_tokens), sum(latency_sum_ms), sum(latency_samples), sum(zero_token_calls),
+		sum(cost_cny_nanos), sum(cost_usd_nanos), sum(unpriced_calls)
 	from usage_pricing_hourly_rollups_v1
 	where %s
 	group by 1, 2, 3, 4, 5, 6, 7
@@ -914,7 +929,8 @@ func rawHourlyStatement(filter HourlyFilter, fromMS, toMS, afterID int64, useAft
 		coalesce(sum(total_tokens), 0),
 		coalesce(sum(case when latency_ms is not null and latency_ms != 0 then latency_ms else 0 end), 0),
 		count(nullif(latency_ms, 0)),
-		coalesce(sum(case when total_tokens = 0 and failed = 0 then 1 else 0 end), 0)
+		coalesce(sum(case when total_tokens = 0 and failed = 0 then 1 else 0 end), 0),
+		`+usageeventcost.SumSQL+`
 	from banded_events
 	group by 1, 2, 3, 4, 5, 6, 7
 	order by 1, 2, 3, 4, 5, 6, 7`,
@@ -956,6 +972,9 @@ func scanAndMergeHourlyRows(rows *sql.Rows, grouped map[hourlyKey]*HourlyRow) er
 			&row.LatencySumMS,
 			&row.LatencySamples,
 			&row.ZeroTokenCalls,
+			&row.CostCNYNanos,
+			&row.CostUSDNanos,
+			&row.UnpricedCalls,
 		); err != nil {
 			return err
 		}
@@ -997,6 +1016,7 @@ func mergeHourlyRow(grouped map[hourlyKey]*HourlyRow, row HourlyRow) {
 	entry.LatencySumMS += row.LatencySumMS
 	entry.LatencySamples += row.LatencySamples
 	entry.ZeroTokenCalls += row.ZeroTokenCalls
+	entry.AddCost(row.CostTotals)
 }
 
 func sortedHourlyRows(grouped map[hourlyKey]*HourlyRow) []HourlyRow {
@@ -1107,7 +1127,8 @@ func mergeStoredAccountRows(
 		cache_read_tokens, cache_creation_tokens,
 		long_input_tokens, long_output_tokens, long_cached_tokens,
 		long_cache_read_tokens, long_cache_creation_tokens,
-		total_tokens, first_seen_ms, last_seen_ms, updated_at_ms
+		total_tokens, first_seen_ms, last_seen_ms, updated_at_ms,
+		cost_cny_nanos, cost_usd_nanos, unpriced_calls
 	from usage_pricing_account_rollups_v1
 	where structure_revision = ? and account_key in (`+placeholders+`)
 	order by account_key, last_seen_ms desc`, args...)
@@ -1151,7 +1172,8 @@ func mergeRawAccountRows(
 		coalesce(sum(case when normalized_input_tokens_value > %d then compatible_cached_tokens_value else 0 end), 0),
 		coalesce(sum(case when normalized_input_tokens_value > %d then cache_read_tokens else 0 end), 0),
 		coalesce(sum(case when normalized_input_tokens_value > %d then cache_creation_tokens else 0 end), 0),
-		coalesce(sum(total_tokens), 0), min(timestamp_ms), max(timestamp_ms), 0
+		coalesce(sum(total_tokens), 0), min(timestamp_ms), max(timestamp_ms), 0,
+		`+usageeventcost.SumSQL+`
 	from banded_events
 	where account_key_value in (%s)
 		group by account_key_value, analytics_model_value, billing_model_value, pricing_model_value,
@@ -1211,6 +1233,9 @@ func scanAndMergeAccountRows(rows *sql.Rows, grouped map[accountKey]*AccountRow)
 			&row.FirstSeenMS,
 			&row.LastSeenMS,
 			&row.UpdatedAtMS,
+			&row.CostCNYNanos,
+			&row.CostUSDNanos,
+			&row.UnpricedCalls,
 		); err != nil {
 			return err
 		}
@@ -1250,6 +1275,7 @@ func mergeAccountRow(grouped map[accountKey]*AccountRow, row AccountRow) {
 	entry.LongCacheReadTokens += row.LongCacheReadTokens
 	entry.LongCacheCreationTokens += row.LongCacheCreationTokens
 	entry.TotalTokens += row.TotalTokens
+	entry.AddCost(row.CostTotals)
 	if entry.FirstSeenMS == 0 || (row.FirstSeenMS > 0 && row.FirstSeenMS < entry.FirstSeenMS) {
 		entry.FirstSeenMS = row.FirstSeenMS
 	}

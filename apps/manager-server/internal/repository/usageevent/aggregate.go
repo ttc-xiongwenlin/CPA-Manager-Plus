@@ -78,6 +78,7 @@ type Aggregate struct {
 type ModelStat struct {
 	usage.LongContextTokens
 	usage.PricingBand
+	usage.CostTotals
 	Model               string
 	BillingModel        string
 	ServiceTier         string

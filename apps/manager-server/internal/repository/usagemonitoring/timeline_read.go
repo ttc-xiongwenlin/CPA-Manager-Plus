@@ -16,6 +16,7 @@ const timelineHourMS = int64(3600000)
 type TimelineHourRow struct {
 	usage.LongContextTokens
 	usage.PricingBand
+	usage.CostTotals
 	BucketMS int64
 	// FirstTimestampMS orders groups the way the raw readers do, by the
 	// earliest event in the group rather than by bucket.

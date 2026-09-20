@@ -119,6 +119,7 @@ type APIKeySelectorValue struct {
 type TimelinePoint struct {
 	usage.LongContextTokens
 	usage.PricingBand
+	usage.CostTotals
 	BucketMS            int64
 	Model               string
 	BillingModel        string
@@ -146,6 +147,7 @@ type HourlyPoint struct {
 type HeatmapPoint struct {
 	usage.LongContextTokens
 	usage.PricingBand
+	usage.CostTotals
 	Weekday             int
 	Hour                int
 	Model               string
@@ -167,6 +169,7 @@ type HeatmapPoint struct {
 type ChannelModelStat struct {
 	usage.LongContextTokens
 	usage.PricingBand
+	usage.CostTotals
 	AuthIndex             string
 	Source                string
 	AccountSnapshot       string
@@ -217,6 +220,7 @@ type BusinessOutcomeHourRow struct {
 type AccountModelStat struct {
 	usage.LongContextTokens
 	usage.PricingBand
+	usage.CostTotals
 	AccountSnapshot              string
 	AuthLabelSnapshot            string
 	AuthProviderSnapshot         string
@@ -262,6 +266,7 @@ type AccountWindowUsageQuery struct {
 type AccountWindowModelStat struct {
 	usage.LongContextTokens
 	usage.PricingBand
+	usage.CostTotals
 	RequestIndex        int
 	Model               string
 	BillingModel        string
@@ -281,6 +286,7 @@ type AccountWindowModelStat struct {
 type CredentialModelStat struct {
 	usage.LongContextTokens
 	usage.PricingBand
+	usage.CostTotals
 	ID                    string
 	AuthFileSnapshot      string
 	AuthIndex             string
@@ -311,6 +317,7 @@ type CredentialModelStat struct {
 type CredentialTimelinePoint struct {
 	usage.LongContextTokens
 	usage.PricingBand
+	usage.CostTotals
 	ID                    string
 	AuthFileSnapshot      string
 	AuthIndex             string
@@ -342,6 +349,7 @@ type CredentialTimelinePoint struct {
 type APIKeyTimelinePoint struct {
 	usage.LongContextTokens
 	usage.PricingBand
+	usage.CostTotals
 	APIKeyHash          string
 	BucketMS            int64
 	Model               string
@@ -364,6 +372,7 @@ type APIKeyTimelinePoint struct {
 type APIKeyModelStat struct {
 	usage.LongContextTokens
 	usage.PricingBand
+	usage.CostTotals
 	APIKeyHash            string
 	AccountSnapshot       string
 	AuthLabelSnapshot     string
@@ -447,6 +456,10 @@ type EventPageItem struct {
 	CacheCreationTokens    int64
 	ReasoningTokens        int64
 	TotalTokens            int64
+	CostCNYNanos           int64
+	CostUSDNanos           int64
+	PriceSource            string
+	CostMultiplier         float64
 	LatencyMS              sql.NullInt64
 	TTFTMS                 sql.NullInt64
 	Failed                 bool
