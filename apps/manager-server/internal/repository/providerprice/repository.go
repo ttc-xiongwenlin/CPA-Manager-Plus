@@ -6,6 +6,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/seakee/cpa-manager-plus/apps/manager-server/internal/model"
@@ -45,7 +47,7 @@ func (r *repository) LoadAllTx(ctx context.Context, tx *sql.Tx) ([]model.Provide
 	rows, err := tx.QueryContext(ctx, `select
 		id, provider, model, prompt_per_1m, completion_per_1m,
 		cache_read_per_1m, cache_creation_per_1m, cache_read_configured, cache_creation_configured,
-		timezone, coalesce(note, ''), updated_at_ms
+		timezone, coalesce(note, ''), coalesce(off_days, ''), updated_at_ms
 		from provider_model_prices order by provider, model`)
 	if err != nil {
 		return nil, err
@@ -55,6 +57,7 @@ func (r *repository) LoadAllTx(ctx context.Context, tx *sql.Tx) ([]model.Provide
 	for rows.Next() {
 		var price model.ProviderModelPrice
 		var cacheReadConfigured, cacheCreationConfigured int
+		var offDays string
 		if err := rows.Scan(
 			&price.ID,
 			&price.Provider,
@@ -67,6 +70,7 @@ func (r *repository) LoadAllTx(ctx context.Context, tx *sql.Tx) ([]model.Provide
 			&cacheCreationConfigured,
 			&price.Timezone,
 			&price.Note,
+			&offDays,
 			&price.UpdatedAtMS,
 		); err != nil {
 			_ = rows.Close()
@@ -74,6 +78,7 @@ func (r *repository) LoadAllTx(ctx context.Context, tx *sql.Tx) ([]model.Provide
 		}
 		price.CacheReadConfigured = cacheReadConfigured != 0
 		price.CacheCreationConfigured = cacheCreationConfigured != 0
+		price.OffDays = splitList(offDays)
 		index[price.ID] = len(prices)
 		prices = append(prices, price)
 	}
@@ -86,7 +91,7 @@ func (r *repository) LoadAllTx(ctx context.Context, tx *sql.Tx) ([]model.Provide
 	}
 
 	windowRows, err := tx.QueryContext(ctx, `select
-		id, price_id, start_minute, end_minute, multiplier, coalesce(label, '')
+		id, price_id, start_minute, end_minute, multiplier, coalesce(label, ''), coalesce(weekdays, '')
 		from provider_model_price_windows order by price_id, start_minute, id`)
 	if err != nil {
 		return nil, err
@@ -95,9 +100,11 @@ func (r *repository) LoadAllTx(ctx context.Context, tx *sql.Tx) ([]model.Provide
 	for windowRows.Next() {
 		var priceID int64
 		var window model.ProviderPriceWindow
-		if err := windowRows.Scan(&window.ID, &priceID, &window.StartMinute, &window.EndMinute, &window.Multiplier, &window.Label); err != nil {
+		var weekdays string
+		if err := windowRows.Scan(&window.ID, &priceID, &window.StartMinute, &window.EndMinute, &window.Multiplier, &window.Label, &weekdays); err != nil {
 			return nil, err
 		}
+		window.Weekdays = parseWeekdays(weekdays)
 		position, ok := index[priceID]
 		if !ok {
 			continue
@@ -140,8 +147,8 @@ func (r *repository) ReplaceAll(ctx context.Context, prices []model.ProviderMode
 	upsert, err := tx.PrepareContext(ctx, `insert into provider_model_prices (
 		provider, model, prompt_per_1m, completion_per_1m,
 		cache_read_per_1m, cache_creation_per_1m, cache_read_configured, cache_creation_configured,
-		timezone, note, updated_at_ms
-	) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		timezone, note, off_days, updated_at_ms
+	) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	on conflict(provider, model) do update set
 		prompt_per_1m = excluded.prompt_per_1m,
 		completion_per_1m = excluded.completion_per_1m,
@@ -151,6 +158,7 @@ func (r *repository) ReplaceAll(ctx context.Context, prices []model.ProviderMode
 		cache_creation_configured = excluded.cache_creation_configured,
 		timezone = excluded.timezone,
 		note = excluded.note,
+		off_days = excluded.off_days,
 		updated_at_ms = excluded.updated_at_ms
 	returning id`)
 	if err != nil {
@@ -158,8 +166,8 @@ func (r *repository) ReplaceAll(ctx context.Context, prices []model.ProviderMode
 	}
 	defer upsert.Close()
 	insertWindow, err := tx.PrepareContext(ctx, `insert into provider_model_price_windows (
-		price_id, start_minute, end_minute, multiplier, label
-	) values (?, ?, ?, ?, ?)`)
+		price_id, start_minute, end_minute, multiplier, label, weekdays
+	) values (?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return nil, err
 	}
@@ -181,6 +189,7 @@ func (r *repository) ReplaceAll(ctx context.Context, prices []model.ProviderMode
 			price.CacheCreationConfigured,
 			price.Timezone,
 			nullString(price.Note),
+			strings.Join(price.OffDays, ","),
 			now,
 		).Scan(&price.ID); err != nil {
 			return nil, err
@@ -191,7 +200,7 @@ func (r *repository) ReplaceAll(ctx context.Context, prices []model.ProviderMode
 		}
 		for windowPosition := range price.Windows {
 			window := &price.Windows[windowPosition]
-			result, err := insertWindow.ExecContext(ctx, price.ID, window.StartMinute, window.EndMinute, window.Multiplier, nullString(window.Label))
+			result, err := insertWindow.ExecContext(ctx, price.ID, window.StartMinute, window.EndMinute, window.Multiplier, nullString(window.Label), joinWeekdays(window.Weekdays))
 			if err != nil {
 				return nil, err
 			}
@@ -220,6 +229,44 @@ func (r *repository) ReplaceAll(ctx context.Context, prices []model.ProviderMode
 		return nil, err
 	}
 	return normalized, nil
+}
+
+func splitList(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part = strings.TrimSpace(part); part != "" {
+			result = append(result, part)
+		}
+	}
+	return result
+}
+
+func joinWeekdays(weekdays []int) string {
+	parts := make([]string, 0, len(weekdays))
+	for _, weekday := range weekdays {
+		parts = append(parts, strconv.Itoa(weekday))
+	}
+	return strings.Join(parts, ",")
+}
+
+func parseWeekdays(value string) []int {
+	parts := splitList(value)
+	if len(parts) == 0 {
+		return nil
+	}
+	result := make([]int, 0, len(parts))
+	for _, part := range parts {
+		weekday, err := strconv.Atoi(part)
+		if err != nil {
+			continue
+		}
+		result = append(result, weekday)
+	}
+	return result
 }
 
 func nullString(value string) any {

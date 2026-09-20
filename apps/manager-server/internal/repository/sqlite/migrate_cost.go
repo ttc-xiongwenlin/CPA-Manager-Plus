@@ -41,6 +41,7 @@ func ensureUsageEventCostSchema(db *sql.DB) error {
 			cache_creation_configured integer not null default 0,
 			timezone text not null default 'Asia/Shanghai',
 			note text,
+			off_days text not null default '',
 			updated_at_ms integer not null,
 			unique (provider, model)
 		)`,
@@ -50,7 +51,8 @@ func ensureUsageEventCostSchema(db *sql.DB) error {
 			start_minute integer not null,
 			end_minute integer not null,
 			multiplier real not null,
-			label text
+			label text,
+			weekdays text not null default ''
 		)`,
 		`create index if not exists idx_provider_model_price_windows_price on provider_model_price_windows(price_id)`,
 		`create table if not exists usage_event_costs_v1 (
@@ -94,6 +96,23 @@ func ensureUsageEventCostSchema(db *sql.DB) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	// Weekday windows and off days arrived after the first deploy of the
+	// provider price book; add them to databases created before that.
+	for _, column := range []struct{ table, name, definition string }{
+		{"provider_model_prices", "off_days", "text not null default ''"},
+		{"provider_model_price_windows", "weekdays", "text not null default ''"},
+	} {
+		exists, err := tableHasColumn(tx, column.table, column.name)
+		if err != nil {
+			return err
+		}
+		if exists {
+			continue
+		}
+		if _, err := tx.Exec(fmt.Sprintf(`alter table %s add column %s %s`, column.table, column.name, column.definition)); err != nil {
+			return fmt.Errorf("add %s.%s: %w", column.table, column.name, err)
+		}
+	}
 	for _, tableName := range usageEventCostRollupTables {
 		for _, column := range usageEventCostRollupColumns {
 			exists, err := tableHasColumn(tx, tableName, column.name)

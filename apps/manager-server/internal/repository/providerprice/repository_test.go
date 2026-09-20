@@ -29,7 +29,8 @@ func TestReplaceAllKeepsIdsAndRewritesWindows(t *testing.T) {
 		{
 			Provider: "OpenAI_Compatible-DeepSeek", Model: "deepseek-flash", Prompt: 2, Completion: 8,
 			CacheRead: 0.2, CacheReadConfigured: true, Note: "v4",
-			Windows: []model.ProviderPriceWindow{{StartMinute: 30, EndMinute: 510, Multiplier: 0.5, Label: "off-peak"}},
+			Windows: []model.ProviderPriceWindow{{StartMinute: 30, EndMinute: 510, Multiplier: 0.5, Label: "off-peak", Weekdays: []int{5, 1}}},
+			OffDays: []string{"2026-10-01", "2026-09-25"},
 		},
 	})
 	if err != nil {
@@ -52,6 +53,15 @@ func TestReplaceAllKeepsIdsAndRewritesWindows(t *testing.T) {
 	}
 	if len(loaded[1].Windows) != 1 || loaded[1].Windows[0].Label != "off-peak" {
 		t.Fatalf("loaded windows = %#v", loaded[1].Windows)
+	}
+	if got := loaded[1].Windows[0].Weekdays; len(got) != 2 || got[0] != 1 || got[1] != 5 {
+		t.Fatalf("loaded weekdays = %#v", got)
+	}
+	if got := loaded[1].OffDays; len(got) != 2 || got[0] != "2026-09-25" || got[1] != "2026-10-01" {
+		t.Fatalf("loaded off days = %#v", got)
+	}
+	if loaded[0].Windows != nil || loaded[0].OffDays != nil {
+		t.Fatalf("rule without windows should load empty: %#v", loaded[0])
 	}
 
 	saved, err = repo.ReplaceAll(ctx, []model.ProviderModelPrice{{

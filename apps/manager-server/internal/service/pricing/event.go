@@ -131,7 +131,7 @@ func (b *Book) PriceEvent(event EventInput) EventCost {
 			}
 			multiplier := 1.0
 			var windowID int64
-			if window, matched := entry.price.MatchWindow(model.LocalMinute(event.TimestampMS, entry.location)); matched {
+			if window, matched := entry.price.MatchWindowAt(time.UnixMilli(event.TimestampMS).In(entry.location)); matched {
 				multiplier = window.Multiplier
 				windowID = window.ID
 			}

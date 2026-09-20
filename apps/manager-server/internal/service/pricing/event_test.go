@@ -128,3 +128,30 @@ func TestPriceEventDefaultBookAppliesContextTiers(t *testing.T) {
 		t.Fatalf("tier pricing = %d / %d, want 100000 / 303000 nanos", small.CostUSDNanos, large.CostUSDNanos)
 	}
 }
+
+func TestPriceEventAppliesWeekdayOnlyWindows(t *testing.T) {
+	rule := model.ProviderModelPrice{
+		ID: 9, Provider: "openai-compatible-deepseek", Model: "deepseek-flash",
+		Prompt: 1, Completion: 4, CacheRead: 0.02, CacheReadConfigured: true, Timezone: "Asia/Shanghai",
+		Windows: []model.ProviderPriceWindow{
+			{ID: 1, StartMinute: 540, EndMinute: 720, Multiplier: 2, Weekdays: []int{1, 2, 3, 4, 5}},
+			{ID: 2, StartMinute: 840, EndMinute: 1080, Multiplier: 2, Weekdays: []int{1, 2, 3, 4, 5}},
+		},
+		OffDays: []string{"2026-10-01"},
+	}
+	book := NewBook(nil, []model.ProviderModelPrice{rule})
+	event := deepseekEvent(time.Date(2026, 9, 21, 2, 0, 0, 0, time.UTC)) // Monday 10:00 Shanghai
+	peak := book.PriceEvent(event)
+	// 500k*1 + 500k*0.02 + 100k*4 = 0.91 CNY doubled during peak.
+	if peak.CostCNYNanos != 1_820_000_000 || peak.WindowID != 1 || peak.Multiplier != 2 {
+		t.Fatalf("weekday peak = %#v", peak)
+	}
+	weekend := book.PriceEvent(deepseekEvent(time.Date(2026, 9, 26, 2, 0, 0, 0, time.UTC))) // Saturday 10:00
+	if weekend.CostCNYNanos != 910_000_000 || weekend.WindowID != 0 {
+		t.Fatalf("weekend should stay off-peak = %#v", weekend)
+	}
+	holiday := book.PriceEvent(deepseekEvent(time.Date(2026, 10, 1, 2, 0, 0, 0, time.UTC))) // Thursday 10:00, off day
+	if holiday.CostCNYNanos != 910_000_000 || holiday.WindowID != 0 {
+		t.Fatalf("off day should stay off-peak = %#v", holiday)
+	}
+}

@@ -109,3 +109,85 @@ func TestFlatPriceFallsBackToPromptForUnconfiguredCache(t *testing.T) {
 		t.Fatalf("explicit zero cache read must stay zero: %#v", explicit)
 	}
 }
+
+func TestNormalizeProviderModelPriceWeekdaysAndOffDays(t *testing.T) {
+	price, err := NormalizeProviderModelPrice(ProviderModelPrice{
+		Provider: "openai-compatible-deepseek", Model: "deepseek-flash", Prompt: 1, Completion: 4,
+		Windows: []ProviderPriceWindow{
+			{StartMinute: 540, EndMinute: 720, Multiplier: 2, Weekdays: []int{5, 1, 3, 1}},
+			{StartMinute: 540, EndMinute: 720, Multiplier: 1.5, Weekdays: []int{6, 7}},
+			{StartMinute: 840, EndMinute: 1080, Multiplier: 2, Weekdays: []int{1, 2, 3, 4, 5, 6, 7}},
+		},
+		OffDays: []string{" 2026-10-01 ", "2026-10-01", "2026-09-25", ""},
+	})
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	if got := price.Windows[0].Weekdays; len(got) != 3 || got[0] != 1 || got[1] != 3 || got[2] != 5 {
+		t.Fatalf("weekdays should be sorted and unique: %#v", got)
+	}
+	if price.Windows[2].Weekdays != nil {
+		t.Fatalf("all seven weekdays should collapse to every day: %#v", price.Windows[2].Weekdays)
+	}
+	if len(price.OffDays) != 2 || price.OffDays[0] != "2026-09-25" || price.OffDays[1] != "2026-10-01" {
+		t.Fatalf("off days = %#v", price.OffDays)
+	}
+	for _, bad := range []ProviderModelPrice{
+		{Provider: "p", Model: "m", Windows: []ProviderPriceWindow{{StartMinute: 0, EndMinute: 60, Multiplier: 1, Weekdays: []int{0}}}},
+		{Provider: "p", Model: "m", Windows: []ProviderPriceWindow{{StartMinute: 0, EndMinute: 60, Multiplier: 1, Weekdays: []int{8}}}},
+		{Provider: "p", Model: "m", OffDays: []string{"2026/10/01"}},
+		{Provider: "p", Model: "m", Windows: []ProviderPriceWindow{
+			{StartMinute: 0, EndMinute: 60, Multiplier: 1, Weekdays: []int{1, 2}},
+			{StartMinute: 30, EndMinute: 90, Multiplier: 1, Weekdays: []int{2, 3}},
+		}},
+	} {
+		if _, err := NormalizeProviderModelPrice(bad); err == nil {
+			t.Fatalf("expected validation error for %#v", bad)
+		}
+	}
+}
+
+func TestMatchWindowAtHonorsWeekdaysAndOffDays(t *testing.T) {
+	shanghai, _ := time.LoadLocation("Asia/Shanghai")
+	price, err := NormalizeProviderModelPrice(ProviderModelPrice{
+		Provider: "openai-compatible-deepseek", Model: "deepseek-flash", Prompt: 1, Completion: 4,
+		Windows: []ProviderPriceWindow{
+			{StartMinute: 540, EndMinute: 720, Multiplier: 2, Label: "am", Weekdays: []int{1, 2, 3, 4, 5}},
+			{StartMinute: 840, EndMinute: 1080, Multiplier: 2, Label: "pm", Weekdays: []int{1, 2, 3, 4, 5}},
+			{StartMinute: 1380, EndMinute: 60, Multiplier: 0.5, Label: "late", Weekdays: []int{5}},
+		},
+		OffDays: []string{"2026-10-01"},
+	})
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	at := func(y, m, d, hh, mm int) time.Time { return time.Date(y, time.Month(m), d, hh, mm, 0, 0, shanghai) }
+	cases := []struct {
+		name  string
+		local time.Time
+		want  string
+	}{
+		{"monday morning peak", at(2026, 9, 21, 10, 0), "am"},
+		{"monday lunch", at(2026, 9, 21, 13, 0), ""},
+		{"friday afternoon peak", at(2026, 9, 25, 15, 30), "pm"},
+		{"saturday morning is off-peak", at(2026, 9, 26, 10, 0), ""},
+		{"sunday afternoon is off-peak", at(2026, 9, 27, 15, 0), ""},
+		{"national day thursday is an off day", at(2026, 10, 1, 10, 0), ""},
+		{"friday late window before midnight", at(2026, 9, 25, 23, 30), "late"},
+		{"wrapped window continues into saturday", at(2026, 9, 26, 0, 30), "late"},
+		{"wrapped window does not start on saturday", at(2026, 9, 26, 23, 30), ""},
+	}
+	for _, tc := range cases {
+		window, matched := price.MatchWindowAt(tc.local)
+		got := ""
+		if matched {
+			got = window.Label
+		}
+		if got != tc.want {
+			t.Fatalf("%s: window = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	if ISOWeekday(time.Sunday) != 7 || ISOWeekday(time.Monday) != 1 || ISOWeekday(time.Saturday) != 6 {
+		t.Fatal("ISO weekday mapping")
+	}
+}
