@@ -15,6 +15,16 @@ import (
 // left join on a unique key.
 const projectionCostJoinSQL = "left join " + usageeventcost.Table + " on " + usageeventcost.Table + ".event_id = p.event_id"
 
+// tailRowIDScanMaxEvents bounds the projection tail that daily rollup readers
+// fetch through the event_id range alone. The tail (AfterID, coverage] usually
+// holds the few events the rollup has not absorbed yet and is often empty, but
+// the bounds are bind parameters, so the planner cannot see that and walks the
+// covering scope index over the whole time window instead. Measured on the
+// production 30GB usage.sqlite: 9.5s per 30-day provider-filtered tail that
+// returned no rows, since the scope index is 844MB and read cold. Past this
+// gap (a rollup still catching up) the time window is the tighter bound again.
+const tailRowIDScanMaxEvents = 20000
+
 type eventSourceOptions struct {
 	AfterID            int64
 	UseAfter           bool
@@ -52,12 +62,18 @@ func filteredEventSourceSQL(
 		}
 	}
 
+	projectionAccess := ""
+	if options.UseAfter && coverageEventID-options.AfterID <= tailRowIDScanMaxEvents {
+		projectionAccess = " not indexed"
+	}
+
 	if options.ProjectionComplete {
 		query := fmt.Sprintf(`select %s
-			from usage_monitoring_event_projection_v1 p
+			from usage_monitoring_event_projection_v1 p%s
 			%s
 			where p.event_id <= ? and %s`,
 			projectionSelect,
+			projectionAccess,
 			projectionCostJoinSQL,
 			strings.Join(projectionConditions, " and "),
 		)
@@ -68,7 +84,7 @@ func filteredEventSourceSQL(
 	}
 
 	query := fmt.Sprintf(`select %s
-		from usage_monitoring_event_projection_v1 p
+		from usage_monitoring_event_projection_v1 p%s
 		%s
 		where p.event_id <= ? and %s
 	union all
@@ -77,6 +93,7 @@ func filteredEventSourceSQL(
 		%s
 		where e.id > ? and %s`,
 		projectionSelect,
+		projectionAccess,
 		projectionCostJoinSQL,
 		strings.Join(projectionConditions, " and "),
 		rawSelect,
