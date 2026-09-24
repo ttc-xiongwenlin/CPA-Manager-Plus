@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"net"
 	"strings"
 	"sync"
@@ -29,6 +28,7 @@ type Status struct {
 	TotalInserted  int64  `json:"totalInserted"`
 	TotalSkipped   int64  `json:"totalSkipped"`
 	DeadLetters    int64  `json:"deadLetters"`
+	PendingEvents  int    `json:"pendingEvents,omitempty"`
 	LastError      string `json:"lastError,omitempty"`
 }
 
@@ -61,6 +61,7 @@ type Manager struct {
 	cancel            context.CancelFunc
 	status            Status
 	runtimeCfg        RuntimeConfig
+	buffer            writeBuffer
 }
 
 func NewManager(base config.Config, store *store.Store) *Manager {
@@ -137,6 +138,7 @@ func (m *Manager) setStatus(update func(*Status)) {
 }
 
 func (m *Manager) run(ctx context.Context, cfg RuntimeConfig) {
+	defer m.flushOnExit(cfg)
 	mode := collectorMode(valueOr(cfg.CollectorMode, m.base.CollectorMode))
 
 	if mode == "subscribe" {
@@ -244,7 +246,11 @@ func (m *Manager) consumeSubscribe(ctx context.Context, cfg RuntimeConfig, clien
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if err := client.SetReadDeadline(time.Now().Add(readWindow)); err != nil {
+		window := readWindow
+		if m.bufferedEvents() > 0 {
+			window = bufferedReadWindow
+		}
+		if err := client.SetReadDeadline(time.Now().Add(window)); err != nil {
 			return err
 		}
 		_, payload, err := client.ReadMessage()
@@ -254,6 +260,9 @@ func (m *Manager) consumeSubscribe(ctx context.Context, cfg RuntimeConfig, clien
 			}
 			var ne net.Error
 			if errors.As(err, &ne) && ne.Timeout() {
+				if err := m.writeEvents(ctx, cfg, nil); err != nil {
+					return err
+				}
 				if time.Since(lastPing) >= pingInterval {
 					if perr := client.SendSubscribePing(); perr != nil {
 						return perr
@@ -362,6 +371,9 @@ func (m *Manager) consumeHTTP(ctx context.Context, cfg RuntimeConfig, client *ht
 			return err
 		}
 		if len(items) == 0 {
+			if err := m.writeEvents(ctx, cfg, nil); err != nil {
+				return err
+			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -388,6 +400,9 @@ func (m *Manager) consumeRESP(ctx context.Context, cfg RuntimeConfig, client *re
 			return err
 		}
 		if len(items) == 0 {
+			if err := m.writeEvents(ctx, cfg, nil); err != nil {
+				return err
+			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -431,25 +446,7 @@ func (m *Manager) processItems(ctx context.Context, cfg RuntimeConfig, items []s
 		events = append(events, event)
 	}
 	m.enrichAccountSnapshots(ctx, cfg, events)
-	result, err := m.store.InsertEvents(ctx, events)
-	if err != nil {
-		return err
-	}
-	if result.Inserted > 0 {
-		inserted := insertedEvents(events, result.InsertedEventHashes)
-		if err := m.quotaSnapshots.WriteUsageEvents(ctx, inserted); err != nil {
-			log.Printf("persist usage quota snapshots: %v", err)
-		}
-		m.handleUsageEvents(ctx, cfg, inserted)
-	}
-	if result.Inserted > 0 || result.Skipped > 0 {
-		m.setStatus(func(status *Status) {
-			status.LastInsertedAt = time.Now().UnixMilli()
-			status.TotalInserted += int64(result.Inserted)
-			status.TotalSkipped += int64(result.Skipped)
-		})
-	}
-	return nil
+	return m.writeEvents(ctx, cfg, events)
 }
 
 type usageControlPayload int
