@@ -3552,3 +3552,25 @@ func repriceAllForTest(t *testing.T, ctx context.Context, db *store.Store) {
 	}
 	catchUpMonitoringHourlyRollup(t, ctx, db)
 }
+
+func TestBuildChannelShareKeepsPerCredentialModels(t *testing.T) {
+	rows := buildChannelShare([]store.ChannelModelStat{
+		{AuthIndex: "auth-a", AuthProviderSnapshot: "antigravity", Model: "gemini", Calls: 3, SuccessCalls: 3, TotalTokens: 30, CostTotals: usage.CostTotals{CostUSDNanos: 2e9}},
+		{AuthIndex: "auth-a", AuthProviderSnapshot: "antigravity", Model: "gpt", Calls: 1, SuccessCalls: 1, TotalTokens: 10, CostTotals: usage.CostTotals{CostUSDNanos: 5e9}},
+		{AuthIndex: "auth-b", AuthProviderSnapshot: "openai-compatible-baidu", Model: "baidu-deepseek", Calls: 2, SuccessCalls: 2, TotalTokens: 20, CostTotals: usage.CostTotals{CostCNYNanos: 7e9}},
+	}, nil)
+	byAuth := map[string]ChannelShareRow{}
+	for _, row := range rows {
+		byAuth[row.AuthIndex] = row
+	}
+
+	models := byAuth["auth-a"].Models
+	if len(models) != 2 || models[0].Model != "gpt" || models[1].Model != "gemini" ||
+		math.Abs(models[0].Cost-5) > 0.000001 || models[1].Calls != 3 {
+		t.Fatalf("auth-a models = %#v, want gpt then gemini", models)
+	}
+	models = byAuth["auth-b"].Models
+	if len(models) != 1 || models[0].Model != "baidu-deepseek" || math.Abs(models[0].CostCNY-7) > 0.000001 {
+		t.Fatalf("auth-b models = %#v, want baidu-deepseek with CNY cost", models)
+	}
+}

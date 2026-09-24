@@ -594,6 +594,9 @@ type ChannelShareRow struct {
 	Cost                  float64  `json:"cost"`
 	CostCNY               float64  `json:"cost_cny"`
 	AvgLatencyMS          *float64 `json:"average_latency_ms"`
+	// Per-model split of this credential, so provider views can attribute models without
+	// relying on API key rows, which carry only one provider per key.
+	Models []AccountModelStatRow `json:"models,omitempty"`
 }
 
 type FailureSourceRow struct {
@@ -2689,6 +2692,7 @@ func aggregateModelStats(stats []store.ModelStat, prices map[string]store.ModelP
 func buildChannelShare(stats []store.ChannelModelStat, prices map[string]store.ModelPrice) []ChannelShareRow {
 	type accumulator struct {
 		row        ChannelShareRow
+		models     map[string]*AccountModelStatRow
 		latencySum float64
 		latencyN   int64
 	}
@@ -2700,26 +2704,32 @@ func buildChannelShare(stats []store.ChannelModelStat, prices map[string]store.M
 		}
 		entry := grouped[authIndex]
 		if entry == nil {
-			entry = &accumulator{row: ChannelShareRow{
-				AuthIndex:            authIndex,
-				Source:               stat.Source,
-				AccountSnapshot:      stat.AccountSnapshot,
-				AuthLabelSnapshot:    stat.AuthLabelSnapshot,
-				AuthProviderSnapshot: stat.AuthProviderSnapshot,
-			}}
+			entry = &accumulator{
+				row: ChannelShareRow{
+					AuthIndex:            authIndex,
+					Source:               stat.Source,
+					AccountSnapshot:      stat.AccountSnapshot,
+					AuthLabelSnapshot:    stat.AuthLabelSnapshot,
+					AuthProviderSnapshot: stat.AuthProviderSnapshot,
+				},
+				models: map[string]*AccountModelStatRow{},
+			}
 			grouped[authIndex] = entry
 		}
 		fillChannelShareSnapshots(&entry.row, stat)
+		cost := costForChannelStat(stat, prices)
+		costCNY := stat.CostCNY()
 		entry.row.Calls += stat.Calls
 		entry.row.Success += stat.SuccessCalls
 		entry.row.Failure += stat.FailureCalls
 		entry.row.Tokens += stat.TotalTokens
-		entry.row.Cost += costForChannelStat(stat, prices)
-		entry.row.CostCNY += stat.CostCNY()
+		entry.row.Cost += cost
+		entry.row.CostCNY += costCNY
 		if stat.AvgLatencyMS.Valid && stat.LatencySamples > 0 {
 			entry.latencySum += stat.AvgLatencyMS.Float64 * float64(stat.LatencySamples)
 			entry.latencyN += stat.LatencySamples
 		}
+		addAccountModelStat(entry.models, stat.Model, stat.BillingModel, stat.Calls, stat.SuccessCalls, stat.FailureCalls, stat.InputTokens, stat.OutputTokens, stat.CachedTokens, stat.CacheReadTokens, stat.CacheCreationTokens, stat.TotalTokens, cost, costCNY, 0)
 	}
 	result := make([]ChannelShareRow, 0, len(grouped))
 	for _, entry := range grouped {
@@ -2727,6 +2737,7 @@ func buildChannelShare(stats []store.ChannelModelStat, prices map[string]store.M
 			value := entry.latencySum / float64(entry.latencyN)
 			entry.row.AvgLatencyMS = &value
 		}
+		entry.row.Models = sortedAccountModelStats(entry.models)
 		result = append(result, entry.row)
 	}
 	return result
