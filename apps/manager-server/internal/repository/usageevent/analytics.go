@@ -940,21 +940,29 @@ func (r *repository) LatencyBreakdownWithFilter(ctx context.Context, filter Anal
 
 // latencyBreakdownQuery builds the latency sample scan for one filter. Kept
 // separate from the reader so the query-plan tests can pin the exact SQL the
-// production read runs.
-func latencyBreakdownQuery(filter AnalyticsFilter) (string, []any) {
+// production read runs. A non-empty index pins the scan: the planner sizes
+// usage_events rows from their declared types, far below the kilobytes they
+// really hold, and once the index grew to v4 it preferred the timestamp index
+// plus a wide-row lookup per event. Measured on the 30GB production database
+// for a 7-day provider window: 7.1s unpinned vs 0.15s pinned to v4.
+func latencyBreakdownQuery(filter AnalyticsFilter, index string) (string, []any) {
 	where, args := analyticsWhere(filter)
+	table := "usage_events"
+	if index != "" {
+		table += " indexed by " + index
+	}
 	return fmt.Sprintf(`select
 	timestamp_ms,
 	coalesce(latency_ms, 0),
 	coalesce(ttft_ms, 0)
-from usage_events %s
+from %s %s
 and (latency_ms > 0 or ttft_ms > 0)
-order by timestamp_ms`, where), args
+order by timestamp_ms`, table, where), args
 }
 
 // latencyBreakdown streams the latency samples once and derives the requested
-// aggregates in Go. The scan is covered by idx_usage_events_latency_scope_v3,
-// so it avoids per-row table lookups.
+// aggregates in Go. The scan is pinned to the latency scope index, which
+// covers it, so it avoids per-row table lookups.
 func (r *repository) latencyBreakdown(
 	ctx context.Context,
 	filter AnalyticsFilter,
@@ -963,7 +971,11 @@ func (r *repository) latencyBreakdown(
 	withSummary bool,
 	withBuckets bool,
 ) (LatencySummary, []LatencyPercentiles, error) {
-	query, args := latencyBreakdownQuery(filter)
+	index, err := r.latencyScopeIndex(ctx)
+	if err != nil {
+		return LatencySummary{}, nil, err
+	}
+	query, args := latencyBreakdownQuery(filter, index)
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return LatencySummary{}, nil, err
@@ -1585,8 +1597,12 @@ const businessOutcomeIndexName = "idx_usage_events_request_outcome"
 // latencyScopeIndexName is the covering index for the latency window scans and
 // the scoped business outcome coverage probe. Like businessOutcomeIndexName it
 // is prepared off the startup path, so readers that pin it must check it
-// exists first.
-const latencyScopeIndexName = "idx_usage_events_latency_scope_v3"
+// exists first, and fall back to legacyLatencyScopeIndexName until the offline
+// cleanup builds it.
+const (
+	latencyScopeIndexName       = "idx_usage_events_latency_scope_v4"
+	legacyLatencyScopeIndexName = "idx_usage_events_latency_scope_v3"
+)
 
 // businessOutcomeTimelineSQL folds attempts into requests by request_id and
 // buckets each request on the UTC hour of its first attempt
@@ -1620,7 +1636,8 @@ order by bucket_ms`
 // the %[2]s placeholder receives the analyticsWhere clause (same FromMS/ToMS
 // plus the scope conditions), and n_in counts the attempts that clause
 // matches. %[1]s receives the in-scope predicate: businessOutcomeInScopeExpr
-// for an arbitrary scope, businessOutcomeBucketInScopeExpr for a bucket. The window equality matters: probing a wider or narrower window
+// for an arbitrary scope, businessOutcomeBucketInScopeExpr for a bucket; %[3]s
+// receives the latency scope index the probe pins. The window equality matters: probing a wider or narrower window
 // than the fold would count boundary attempts into n_all but never into
 // n_in, misjudging complete requests as split. Requests with n_in = 0 are
 // out of scope entirely; n_in < n_all means the scope splits the request
@@ -1643,7 +1660,7 @@ from (
 		min(e.failed) as all_failed,
 		max(e.failed) as any_failed,
 		count(*) as n_all,
-		sum(e.id in (select id from usage_events indexed by ` + latencyScopeIndexName + ` %[2]s)) as n_in
+		sum(e.id in (select id from usage_events indexed by %[3]s %[2]s)) as n_in
 	from usage_events e indexed by ` + businessOutcomeIndexName + `
 	where e.timestamp_ms >= ? and e.timestamp_ms < ?
 	group by coalesce(nullif(e.request_id, ''), 'event:' || e.id)
@@ -1667,11 +1684,9 @@ order by bucket_ms`
 //     would drop the coverage probe off its covering index into wide-row
 //     lookups (measured 4.4s vs 0.3s per 7d window).
 //
-// Provider is absent from that index too, but it is a first-class usage
-// analytics filter whose sibling reads (timeline, model and key stats)
-// already walk the wide rows of the same window, so the probe paying the
-// same lookup keeps the request in its cost class while hiding the fold
-// would blank the business error rate for every provider selection.
+// Provider joined that index in v4. While only v3 exists the probe pays the
+// wide-row lookup for provider scopes, which is still better than blanking
+// the business error rate for every provider selection.
 func BusinessOutcomeSupportsFilter(filter AnalyticsFilter) bool {
 	return strings.TrimSpace(filter.SearchQuery) == "" &&
 		len(filter.Accounts) == 0 &&
@@ -1732,6 +1747,23 @@ const businessOutcomeInScopeExpr = "n_in = n_all"
 // businessOutcomeMaxExcludedShare cannot trip and the fold stays visible.
 const businessOutcomeBucketInScopeExpr = "n_in > 0"
 
+// latencyScopeIndex returns the newest latency scope index present, or "" when
+// neither has been built yet.
+func (r *repository) latencyScopeIndex(ctx context.Context) (string, error) {
+	for _, name := range []string{latencyScopeIndexName, legacyLatencyScopeIndexName} {
+		var count int
+		if err := r.db.QueryRowContext(ctx,
+			`select count(*) from sqlite_master where type = 'index' and name = ?`,
+			name).Scan(&count); err != nil {
+			return "", err
+		}
+		if count > 0 {
+			return name, nil
+		}
+	}
+	return "", nil
+}
+
 // BusinessOutcomeTimelineWithFilter folds upstream attempts into client
 // requests by request_id and reports hourly outcome totals. Fold-safe scope
 // filters (model, auth indices, key, source) run through a coverage check
@@ -1778,14 +1810,13 @@ func (r *repository) BusinessOutcomeTimelineWithFilter(ctx context.Context, filt
 	}
 
 	// The scoped variant also pins the latency scope index for its coverage
-	// probe, and that index is prepared off the startup path too: during the
-	// v2 to v3 upgrade window it may not exist yet.
-	if err := r.db.QueryRowContext(ctx,
-		`select count(*) from sqlite_master where type = 'index' and name = ?`,
-		latencyScopeIndexName).Scan(&indexCount); err != nil {
+	// probe, and that index is prepared off the startup path too: during an
+	// upgrade window it may not exist yet.
+	probeIndex, err := r.latencyScopeIndex(ctx)
+	if err != nil {
 		return nil, false, err
 	}
-	if indexCount == 0 {
+	if probeIndex == "" {
 		return nil, false, nil
 	}
 
@@ -1798,7 +1829,7 @@ func (r *repository) BusinessOutcomeTimelineWithFilter(ctx context.Context, filt
 	if filter.BucketScope {
 		inScope = businessOutcomeBucketInScopeExpr
 	}
-	rows, err := r.db.QueryContext(ctx, fmt.Sprintf(businessOutcomeScopedTimelineSQL, inScope, where), args...)
+	rows, err := r.db.QueryContext(ctx, fmt.Sprintf(businessOutcomeScopedTimelineSQL, inScope, where, probeIndex), args...)
 	if err != nil {
 		return nil, false, err
 	}

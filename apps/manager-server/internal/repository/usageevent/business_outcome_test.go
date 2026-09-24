@@ -233,38 +233,60 @@ func businessOutcomeProviderEvent(hash, requestID string, timestampMS int64, aut
 	return event
 }
 
-// The usage analytics provider filter must keep the business error rate:
-// the trend tab's sibling reads (timeline, model and key stats) already
-// walk the wide rows for a provider condition, so the coverage probe
-// paying the same lookup does not change the request's cost class.
+// The usage analytics provider filter must keep the business error rate, also
+// while only v3 of the latency scope index exists: v4 ships through the
+// offline cleanup-derived command, so a freshly deployed server still probes
+// through v3 (paying wide-row lookups for the provider condition).
 func TestBusinessOutcomeScopedFilterByProvider(t *testing.T) {
-	repo := openBusinessOutcomeRepo(t)
-	ctx := context.Background()
-	hourA := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
-	if _, err := repo.InsertBatch(ctx, []usage.Event{
-		// Retry hops accounts but keeps the provider: fully covered, rescued.
-		businessOutcomeProviderEvent("covp-p1-a1", "p1", hourA+10_000, "auth-1", "codex", true),
-		businessOutcomeProviderEvent("covp-p1-a2", "p1", hourA+20_000, "auth-2", "codex", false),
-		// Both attempts failed on the provider: business failure.
-		businessOutcomeProviderEvent("covp-p2-a1", "p2", hourA+30_000, "auth-1", "codex", true),
-		businessOutcomeProviderEvent("covp-p2-a2", "p2", hourA+40_000, "auth-2", "codex", true),
-		// Different provider: out of scope.
-		businessOutcomeProviderEvent("covp-p3-a1", "p3", hourA+50_000, "auth-3", "claude", false),
-	}); err != nil {
-		t.Fatalf("insert events: %v", err)
-	}
+	for name, legacyIndexOnly := range map[string]bool{"v4": false, "v3 fallback": true} {
+		db, err := sqliterepo.Open(filepath.Join(t.TempDir(), "usage.sqlite"))
+		if err != nil {
+			t.Fatalf("%s: open database: %v", name, err)
+		}
+		t.Cleanup(func() { _ = db.Close() })
+		if err := sqliterepo.RunDerivedStartupMaintenance(context.Background(), db); err != nil {
+			t.Fatalf("%s: prepare post-listen indexes: %v", name, err)
+		}
+		if legacyIndexOnly {
+			if _, err := db.Exec(`drop index ` + latencyScopeIndexName); err != nil {
+				t.Fatalf("%s: drop latency scope index: %v", name, err)
+			}
+			if _, err := db.Exec(`create index ` + legacyLatencyScopeIndexName + ` on usage_events(
+				timestamp_ms, auth_index, api_key_hash, auth_file_snapshot,
+				source_hash, model, requested_model, latency_ms, ttft_ms,
+				failed, cached_tokens, cache_tokens, cache_read_tokens,
+				cache_creation_tokens)`); err != nil {
+				t.Fatalf("%s: create legacy latency scope index: %v", name, err)
+			}
+		}
+		repo := New(db)
+		ctx := context.Background()
+		hourA := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
+		if _, err := repo.InsertBatch(ctx, []usage.Event{
+			// Retry hops accounts but keeps the provider: fully covered, rescued.
+			businessOutcomeProviderEvent("covp-p1-a1", "p1", hourA+10_000, "auth-1", "codex", true),
+			businessOutcomeProviderEvent("covp-p1-a2", "p1", hourA+20_000, "auth-2", "codex", false),
+			// Both attempts failed on the provider: business failure.
+			businessOutcomeProviderEvent("covp-p2-a1", "p2", hourA+30_000, "auth-1", "codex", true),
+			businessOutcomeProviderEvent("covp-p2-a2", "p2", hourA+40_000, "auth-2", "codex", true),
+			// Different provider: out of scope.
+			businessOutcomeProviderEvent("covp-p3-a1", "p3", hourA+50_000, "auth-3", "claude", false),
+		}); err != nil {
+			t.Fatalf("%s: insert events: %v", name, err)
+		}
 
-	filter := businessOutcomeTimeFilter(hourA, hourA+3_600_000)
-	filter.Providers = []string{"codex"}
-	rows, available, err := repo.BusinessOutcomeTimelineWithFilter(ctx, filter)
-	if err != nil {
-		t.Fatalf("provider-scoped business outcome: %v", err)
-	}
-	if !available {
-		t.Fatalf("provider-scoped business outcome unavailable, want available")
-	}
-	if len(rows) != 1 || rows[0].Requests != 2 || rows[0].Failures != 1 || rows[0].RescuedRequests != 1 {
-		t.Fatalf("provider-scoped rows = %#v, want 1 bucket with requests=2 failures=1 rescued=1", rows)
+		filter := businessOutcomeTimeFilter(hourA, hourA+3_600_000)
+		filter.Providers = []string{"codex"}
+		rows, available, err := repo.BusinessOutcomeTimelineWithFilter(ctx, filter)
+		if err != nil {
+			t.Fatalf("%s: provider-scoped business outcome: %v", name, err)
+		}
+		if !available {
+			t.Fatalf("%s: provider-scoped business outcome unavailable, want available", name)
+		}
+		if len(rows) != 1 || rows[0].Requests != 2 || rows[0].Failures != 1 || rows[0].RescuedRequests != 1 {
+			t.Fatalf("%s: provider-scoped rows = %#v, want 1 bucket with requests=2 failures=1 rescued=1", name, rows)
+		}
 	}
 }
 
@@ -466,41 +488,52 @@ func TestBusinessOutcomeScopedQueryStaysOnCoveringIndexes(t *testing.T) {
 		t.Fatalf("prepare post-listen indexes: %v", err)
 	}
 
-	filter := businessOutcomeTimeFilter(1_000, 2_000)
-	filter.AuthIndices = []string{"auth-1", "auth-2"}
-	where, whereArgs := analyticsWhere(filter)
-	args := append(whereArgs, filter.FromMS, filter.ToMS)
-	rows, err := db.Query(`explain query plan `+fmt.Sprintf(businessOutcomeScopedTimelineSQL, businessOutcomeInScopeExpr, where), args...)
-	if err != nil {
-		t.Fatalf("explain scoped business outcome query: %v", err)
-	}
-	defer rows.Close()
-
-	details := make([]string, 0, 8)
-	coversFold := false
-	coversProbe := false
-	rowLookup := false
-	for rows.Next() {
-		var id, parent, notUsed int
-		var detail string
-		if err := rows.Scan(&id, &parent, &notUsed, &detail); err != nil {
-			t.Fatalf("scan query plan: %v", err)
+	authFilter := businessOutcomeTimeFilter(1_000, 2_000)
+	authFilter.AuthIndices = []string{"auth-1", "auth-2"}
+	// Provider needs v4 of the latency scope index: without it the probe looked
+	// up every wide row of the window (measured 53s for 30 days on production).
+	providerFilter := businessOutcomeTimeFilter(1_000, 2_000)
+	providerFilter.Providers = []string{"openai-compatible-deepseek"}
+	for name, filter := range map[string]AnalyticsFilter{
+		"auth indices": authFilter,
+		"provider":     providerFilter,
+	} {
+		where, whereArgs := analyticsWhere(filter)
+		args := append(whereArgs, filter.FromMS, filter.ToMS)
+		rows, err := db.Query(`explain query plan `+fmt.Sprintf(businessOutcomeScopedTimelineSQL, businessOutcomeInScopeExpr, where, latencyScopeIndexName), args...)
+		if err != nil {
+			t.Fatalf("%s: explain scoped business outcome query: %v", name, err)
 		}
-		details = append(details, detail)
-		coversFold = coversFold || strings.Contains(detail, "COVERING INDEX "+businessOutcomeIndexName)
-		coversProbe = coversProbe || strings.Contains(detail, "COVERING INDEX "+latencyScopeIndexName)
-		// A plain "USING INDEX" (without COVERING) or a table scan means the
-		// query fell back to wide-row lookups: measured 4.4s vs 0.3s per 7d
-		// window on production.
-		rowLookup = rowLookup ||
-			(strings.Contains(detail, " USING INDEX ") && !strings.Contains(detail, "COVERING")) ||
-			strings.Contains(detail, "SCAN usage_events")
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("query plan rows: %v", err)
-	}
-	if !coversFold || !coversProbe || rowLookup {
-		t.Fatalf("scoped business outcome query left its covering indexes: %v", details)
+
+		details := make([]string, 0, 8)
+		coversFold := false
+		coversProbe := false
+		rowLookup := false
+		for rows.Next() {
+			var id, parent, notUsed int
+			var detail string
+			if err := rows.Scan(&id, &parent, &notUsed, &detail); err != nil {
+				rows.Close()
+				t.Fatalf("%s: scan query plan: %v", name, err)
+			}
+			details = append(details, detail)
+			coversFold = coversFold || strings.Contains(detail, "COVERING INDEX "+businessOutcomeIndexName)
+			coversProbe = coversProbe || strings.Contains(detail, "COVERING INDEX "+latencyScopeIndexName)
+			// A plain "USING INDEX" (without COVERING) or a table scan means the
+			// query fell back to wide-row lookups: measured 4.4s vs 0.3s per 7d
+			// window on production.
+			rowLookup = rowLookup ||
+				(strings.Contains(detail, " USING INDEX ") && !strings.Contains(detail, "COVERING")) ||
+				strings.Contains(detail, "SCAN usage_events")
+		}
+		queryErr := rows.Err()
+		rows.Close()
+		if queryErr != nil {
+			t.Fatalf("%s: query plan rows: %v", name, queryErr)
+		}
+		if !coversFold || !coversProbe || rowLookup {
+			t.Fatalf("%s: scoped business outcome query left its covering indexes: %v", name, details)
+		}
 	}
 }
 

@@ -243,12 +243,17 @@ var derivedIndexStatements = []struct {
 	// `failed = 0` and the cache filter compares all four cache token columns,
 	// and either condition off the index drags in the wide row. Measured on a
 	// 1.08M-row 18GB usage.sqlite: 32s per 50d window uncovered vs 0.5s covered.
-	{"idx_usage_events_latency_scope_v3", "usage_events", `create index if not exists idx_usage_events_latency_scope_v3
+	// v4 appends provider and auth_provider_snapshot: the provider filter checks
+	// both, and without them a provider-scoped p95 read and the business outcome
+	// coverage probe look up every wide row of the window, all providers
+	// included. Measured on the 2.2M-row 30GB production usage.sqlite for a
+	// 30-day deepseek window: 24s (p95) and 53s (business outcome) uncovered.
+	{"idx_usage_events_latency_scope_v4", "usage_events", `create index if not exists idx_usage_events_latency_scope_v4
 		on usage_events(
 			timestamp_ms, auth_index, api_key_hash, auth_file_snapshot,
 			source_hash, model, requested_model, latency_ms, ttft_ms,
 			failed, cached_tokens, cache_tokens, cache_read_tokens,
-			cache_creation_tokens)`},
+			cache_creation_tokens, provider, auth_provider_snapshot)`},
 	// The business outcome reads fold attempts into client requests by
 	// request_id (min/max of failed per group), so they window on
 	// timestamp_ms and carry request_id and failed in the index to stay off

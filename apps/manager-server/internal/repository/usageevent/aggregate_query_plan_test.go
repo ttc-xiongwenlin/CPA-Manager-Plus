@@ -46,10 +46,11 @@ func TestTopModelsQueryUsesTimestampIndexBeforePricingMaterialization(t *testing
 	}
 }
 
-// The status and cache filters add failed / cache-token conditions to the p95
-// latency window scan. Those columns have to live in the latency scope index or
-// every candidate row falls back to the wide usage_events row: measured 32s per
-// 50d window uncovered vs 0.5s covered on an 18GB production database.
+// The status, cache and provider filters add failed / cache-token / provider
+// conditions to the p95 latency window scan. Those columns have to live in the
+// latency scope index or every candidate row falls back to the wide usage_events
+// row: measured 32s per 50d window uncovered vs 0.5s covered on an 18GB
+// production database, and 24s per 30d provider window on a 30GB one.
 func TestLatencyBreakdownFilteredReadsStayCovered(t *testing.T) {
 	db, err := sqliterepo.Open(filepath.Join(t.TempDir(), "usage.sqlite"))
 	if err != nil {
@@ -65,8 +66,9 @@ func TestLatencyBreakdownFilteredReadsStayCovered(t *testing.T) {
 		"failed only":  {FromMS: 1_000, ToMS: 2_000, IncludeFailed: true, FailedOnly: true},
 		"cache hit":    {FromMS: 1_000, ToMS: 2_000, IncludeFailed: true, CacheStatus: "hit"},
 		"cache miss":   {FromMS: 1_000, ToMS: 2_000, IncludeFailed: true, CacheStatus: "miss"},
+		"provider":     {FromMS: 1_000, ToMS: 2_000, IncludeFailed: true, Providers: []string{"openai-compatible-deepseek"}},
 	} {
-		query, args := latencyBreakdownQuery(filter)
+		query, args := latencyBreakdownQuery(filter, latencyScopeIndexName)
 		rows, err := db.Query(`explain query plan `+query, args...)
 		if err != nil {
 			t.Fatalf("%s: explain latency breakdown query: %v", name, err)
@@ -83,7 +85,7 @@ func TestLatencyBreakdownFilteredReadsStayCovered(t *testing.T) {
 				t.Fatalf("%s: scan query plan: %v", name, err)
 			}
 			details = append(details, detail)
-			covered = covered || strings.Contains(detail, "COVERING INDEX idx_usage_events_latency_scope_v3")
+			covered = covered || strings.Contains(detail, "COVERING INDEX idx_usage_events_latency_scope_v4")
 			rowLookup = rowLookup ||
 				(strings.Contains(detail, " USING INDEX ") && !strings.Contains(detail, "COVERING")) ||
 				strings.Contains(detail, "SCAN usage_events")

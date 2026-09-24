@@ -2692,8 +2692,9 @@ func ensureQuotaSnapshotLifecycleColumns(db *sql.DB) error {
 func dropSupersededScopeIndexes(db *sql.DB) error {
 	for superseded, replacement := range map[string]string{
 		"idx_usage_monitoring_event_projection_scope": "idx_usage_monitoring_event_projection_scope_v2",
-		"idx_usage_events_latency_scope":              "idx_usage_events_latency_scope_v3",
-		"idx_usage_events_latency_scope_v2":           "idx_usage_events_latency_scope_v3",
+		"idx_usage_events_latency_scope":              "idx_usage_events_latency_scope_v4",
+		"idx_usage_events_latency_scope_v2":           "idx_usage_events_latency_scope_v4",
+		"idx_usage_events_latency_scope_v3":           "idx_usage_events_latency_scope_v4",
 	} {
 		var replacements int
 		if err := db.QueryRow(`select count(*) from sqlite_master
