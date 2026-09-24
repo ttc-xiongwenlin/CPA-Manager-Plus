@@ -188,6 +188,8 @@ export type UsageRankRow = {
   apiKeyHash?: string;
   apiKeyCopyValue?: string;
   provider?: string;
+  // Raw auth_provider_snapshot, matching the provider labels of channel_share rows.
+  providerSnapshot?: string;
   authFile?: string;
   authIndex?: string;
   source?: string;
@@ -254,6 +256,7 @@ export type UsageCredentialTimelinePoint = {
   requestCount: number;
   totalTokens: number;
   estimatedCost: number;
+  estimatedCostCny?: number;
 };
 
 export type UsageApiKeyTimelinePoint = {
@@ -263,6 +266,7 @@ export type UsageApiKeyTimelinePoint = {
   requestCount: number;
   totalTokens: number;
   estimatedCost: number;
+  estimatedCostCny?: number;
 };
 
 export type UsageMatrixCell = {
@@ -275,6 +279,7 @@ export type UsageMatrixCell = {
   failureCount: number;
   totalTokens: number;
   estimatedCost: number;
+  estimatedCostCny?: number;
   failureRate: number;
   value: number;
   share: number;
@@ -328,6 +333,7 @@ export type UsageHeatmapPoint = {
   failureCount: number;
   totalTokens: number;
   estimatedCost: number;
+  estimatedCostCny?: number;
   failureRate: number;
   modelContributors?: UsageHeatmapContributor[];
   apiKeyContributors?: UsageHeatmapContributor[];
@@ -342,6 +348,7 @@ export type UsageHeatmapContributor = {
   failureCount: number;
   totalTokens: number;
   estimatedCost: number;
+  estimatedCostCny?: number;
   failureRate: number;
   share: number;
 };
@@ -356,6 +363,7 @@ export type UsageHeatmapChartDatum = [
   totalTokens: number,
   estimatedCost: number,
   failureRate: number,
+  estimatedCostCny: number,
 ];
 
 export type UsageHeatmapCellSelection = {
@@ -995,6 +1003,7 @@ export const buildUsageCredentialTimeline = (
       requestCount: toNumber(point.calls),
       totalTokens: toNumber(point.total_tokens ?? point.tokens),
       estimatedCost: toNumber(point.cost),
+      estimatedCostCny: toOptionalCny(point.cost_cny),
     };
   });
 
@@ -1011,6 +1020,7 @@ export const buildUsageApiKeyTimeline = (
       requestCount: toNumber(point.calls),
       totalTokens: toNumber(point.total_tokens ?? point.tokens),
       estimatedCost: toNumber(point.cost),
+      estimatedCostCny: toOptionalCny(point.cost_cny),
     };
   });
 
@@ -1024,8 +1034,18 @@ const toOptionalCny = (value: unknown): number | undefined =>
 const sumOptionalCny = (left?: number, right?: number): number | undefined =>
   left === undefined && right === undefined ? undefined : (left ?? 0) + (right ?? 0);
 
+// Fixed rate used only where mixed USD/CNY spend must become one number: ranking, shares,
+// thresholds and chart magnitudes. Displayed amounts keep each currency (`formatRowCost`).
+export const USAGE_CNY_PER_USD = 7.2;
+
+export const costInUsd = (value: { estimatedCost: number; estimatedCostCny?: number }) =>
+  value.estimatedCost + (value.estimatedCostCny ?? 0) / USAGE_CNY_PER_USD;
+
+const rawCostInUsd = (row: { cost?: number; cost_cny?: number }) =>
+  costInUsd({ estimatedCost: rowTotalCost(row), estimatedCostCny: toOptionalCny(row.cost_cny) });
+
 const usageRankMetricValue = (row: UsageRankRow, metric: UsageTrendMetricKey) => {
-  if (metric === 'estimatedCost') return row.estimatedCost;
+  if (metric === 'estimatedCost') return costInUsd(row);
   if (metric === 'totalTokens') return row.totalTokens;
   return row.requestCount;
 };
@@ -1034,7 +1054,7 @@ const matrixMetricValue = (
   cell: Omit<UsageMatrixCell, 'value' | 'share'>,
   metric: UsageMatrixMetricKey
 ) => {
-  if (metric === 'estimatedCost') return cell.estimatedCost;
+  if (metric === 'estimatedCost') return costInUsd(cell);
   if (metric === 'totalTokens') return cell.totalTokens;
   if (metric === 'failureRate') return cell.failureRate;
   return cell.requestCount;
@@ -1049,7 +1069,7 @@ export const getUsageHeatmapMetricValue = (
   point: UsageHeatmapPoint,
   metric: UsageHeatmapMetricKey
 ) => {
-  if (metric === 'estimatedCost') return point.estimatedCost;
+  if (metric === 'estimatedCost') return costInUsd(point);
   if (metric === 'totalTokens') return point.totalTokens;
   if (metric === 'failureRate') return point.failureRate;
   return point.requestCount;
@@ -1281,7 +1301,9 @@ export const buildModelRows = (
   rows: MonitoringAnalyticsModelStat[] = [],
   summary?: UsageSummaryMetrics
 ): UsageRankRow[] => {
-  const totalCost = summary?.estimatedCost ?? rows.reduce((sum, row) => sum + rowTotalCost(row), 0);
+  const totalCost = summary
+    ? costInUsd(summary)
+    : rows.reduce((sum, row) => sum + rawCostInUsd(row), 0);
   const totalTokens =
     summary?.totalTokens ?? rows.reduce((sum, row) => sum + toNumber(row.total_tokens), 0);
   return rows
@@ -1307,14 +1329,14 @@ export const buildModelRows = (
       averageLatencyMs: null,
       share:
         totalCost > 0
-          ? rowTotalCost(row) / totalCost
+          ? rawCostInUsd(row) / totalCost
           : totalTokens > 0
             ? toNumber(row.total_tokens) / totalTokens
             : 0,
     }))
     .sort(
       (left, right) =>
-        right.estimatedCost - left.estimatedCost ||
+        costInUsd(right) - costInUsd(left) ||
         right.requestCount - left.requestCount ||
         left.label.localeCompare(right.label)
     );
@@ -1437,6 +1459,7 @@ const buildModelSpendRows = (
   rows:
     | NonNullable<MonitoringAnalyticsApiKeyStatRow['models']>
     | NonNullable<MonitoringAnalyticsCredentialStatRow['models']>
+    | NonNullable<MonitoringAnalyticsChannelShareRow['models']>
     | undefined
 ): UsageRankRow[] =>
   (rows ?? []).map((row) => ({
@@ -1495,7 +1518,9 @@ export const buildApiKeyRows = (
   apiKeyDisplayMap?: UsageApiKeyDisplayMap
 ): UsageRankRow[] => {
   const normalizedKeyword = keyword.trim().toLowerCase();
-  const totalCost = summary?.estimatedCost ?? rows.reduce((sum, row) => sum + rowTotalCost(row), 0);
+  const totalCost = summary
+    ? costInUsd(summary)
+    : rows.reduce((sum, row) => sum + rawCostInUsd(row), 0);
   const totalTokens =
     summary?.totalTokens ?? rows.reduce((sum, row) => sum + toNumber(row.total_tokens), 0);
   return rows
@@ -1536,7 +1561,7 @@ export const buildApiKeyRows = (
         lastSeenMs: row.last_seen_ms,
         share:
           totalCost > 0
-            ? rowTotalCost(row) / totalCost
+            ? rawCostInUsd(row) / totalCost
             : totalTokens > 0
               ? toNumber(row.total_tokens) / totalTokens
               : 0,
@@ -1546,7 +1571,7 @@ export const buildApiKeyRows = (
     })
     .sort(
       (left, right) =>
-        right.estimatedCost - left.estimatedCost ||
+        costInUsd(right) - costInUsd(left) ||
         right.requestCount - left.requestCount ||
         left.label.localeCompare(right.label)
     );
@@ -1557,7 +1582,9 @@ export const buildCredentialRows = (
   summary?: UsageSummaryMetrics,
   credentialDisplayContext?: UsageCredentialDisplayContext
 ): UsageRankRow[] => {
-  const totalCost = summary?.estimatedCost ?? rows.reduce((sum, row) => sum + rowTotalCost(row), 0);
+  const totalCost = summary
+    ? costInUsd(summary)
+    : rows.reduce((sum, row) => sum + rawCostInUsd(row), 0);
   const totalTokens =
     summary?.totalTokens ?? rows.reduce((sum, row) => sum + toNumber(row.total_tokens), 0);
   return rows
@@ -1568,6 +1595,7 @@ export const buildCredentialRows = (
         id: row.id || label,
         label,
         provider: display.provider || row.auth_provider_snapshot,
+        providerSnapshot: row.auth_provider_snapshot,
         authFile: row.auth_file_snapshot,
         authIndex: row.auth_index,
         source: row.source,
@@ -1590,7 +1618,7 @@ export const buildCredentialRows = (
         lastSeenMs: row.last_seen_ms,
         share:
           totalCost > 0
-            ? rowTotalCost(row) / totalCost
+            ? rawCostInUsd(row) / totalCost
             : totalTokens > 0
               ? toNumber(row.total_tokens) / totalTokens
               : 0,
@@ -1599,18 +1627,18 @@ export const buildCredentialRows = (
     })
     .sort(
       (left, right) =>
-        right.estimatedCost - left.estimatedCost ||
+        costInUsd(right) - costInUsd(left) ||
         right.requestCount - left.requestCount ||
         left.label.localeCompare(right.label)
     );
 };
 
 const buildProviderModelsFromEntities = (
-  rows: UsageRankRow[]
+  rows: Pick<UsageRankRow, 'provider' | 'providerSnapshot' | 'models'>[]
 ): Map<string, Map<string, UsageRankRow>> => {
   const providerModels = new Map<string, Map<string, UsageRankRow>>();
   rows.forEach((row) => {
-    const provider = normalizeProviderLabel(row.provider);
+    const provider = normalizeProviderLabel(row.providerSnapshot || row.provider);
     const models = row.models && row.models.length > 0 ? row.models : [];
     if (models.length === 0) return;
     let modelMap = providerModels.get(provider);
@@ -1657,8 +1685,21 @@ export const buildProviderRows = (
   credentialRows: UsageRankRow[] = [],
   summary?: UsageSummaryMetrics
 ): UsageProviderRow[] => {
+  // Each channel_share row is one credential, so its models belong to exactly one provider.
+  // API key rows carry only the first provider a key saw and would pile a multi-provider
+  // key's models onto it; they remain the last fallback for backends without channel models.
+  const channelModelRows = rows
+    .filter((row) => row.models?.length)
+    .map((row) => ({
+      providerSnapshot: row.auth_provider_snapshot,
+      models: buildModelSpendRows(row.models),
+    }));
   const providerModels = buildProviderModelsFromEntities(
-    apiKeyRows.some((row) => row.models?.length) ? apiKeyRows : credentialRows
+    channelModelRows.length > 0
+      ? channelModelRows
+      : credentialRows.some((row) => row.models?.length)
+        ? credentialRows
+        : apiKeyRows
   );
   const grouped = new Map<string, UsageProviderRow>();
   const fallbackRows = new Map<string, UsageRankRow[]>();
@@ -1734,16 +1775,16 @@ export const buildProviderRows = (
 
   const totalRequests =
     summary?.requestCount ?? [...grouped.values()].reduce((sum, row) => sum + row.requestCount, 0);
-  const totalCost =
-    summary?.estimatedCost ??
-    [...grouped.values()].reduce((sum, row) => sum + row.estimatedCost, 0);
+  const totalCost = summary
+    ? costInUsd(summary)
+    : [...grouped.values()].reduce((sum, row) => sum + costInUsd(row), 0);
   const totalTokens =
     summary?.totalTokens ?? [...grouped.values()].reduce((sum, row) => sum + row.totalTokens, 0);
   return [...grouped.values()]
     .map((row) => {
       const models = [...(providerModels.get(row.label)?.values() ?? [])].sort(
         (left, right) =>
-          right.estimatedCost - left.estimatedCost ||
+          costInUsd(right) - costInUsd(left) ||
           right.requestCount - left.requestCount ||
           left.label.localeCompare(right.label)
       );
@@ -1757,7 +1798,7 @@ export const buildProviderRows = (
             ? computeRowsCacheHitRate(models)
             : computeRowsCacheHitRate(fallbackRows.get(row.label) ?? []),
         requestShare,
-        costShare: safeShare(row.estimatedCost, totalCost),
+        costShare: safeShare(costInUsd(row), totalCost),
         tokenShare: safeShare(row.totalTokens, totalTokens),
         share: requestShare,
         models: models.map((model) => ({
@@ -1769,7 +1810,7 @@ export const buildProviderRows = (
     .sort(
       (left, right) =>
         right.requestCount - left.requestCount ||
-        right.estimatedCost - left.estimatedCost ||
+        costInUsd(right) - costInUsd(left) ||
         left.label.localeCompare(right.label)
     );
 };
@@ -1804,6 +1845,7 @@ const buildMatrixCellsFromEntityRows = (
       current.failureCount += model.failureCount;
       current.totalTokens += model.totalTokens;
       current.estimatedCost += model.estimatedCost;
+      current.estimatedCostCny = sumOptionalCny(current.estimatedCostCny, model.estimatedCostCny);
       current.failureRate = safeShare(current.failureCount, current.requestCount);
       grouped.set(key, current);
     });
@@ -1826,9 +1868,9 @@ export const buildUsageMatrix = ({
   dimension: UsageMatrixDimension;
   metric: UsageMatrixMetricKey;
 }): UsageMatrix => {
-  const providerModelRows = apiKeyRows.some((row) => row.models?.length)
-    ? apiKeyRows
-    : credentialRows;
+  const providerModelRows = credentialRows.some((row) => row.models?.length)
+    ? credentialRows
+    : apiKeyRows;
   const sourceRows =
     dimension === 'authFileModel'
       ? credentialRows
@@ -1844,7 +1886,7 @@ export const buildUsageMatrix = ({
         );
       }
       if (dimension === 'authFileModel') return normalizeMatrixLabel(row.authFile || row.label);
-      return normalizeProviderLabel(row.provider);
+      return normalizeProviderLabel(row.providerSnapshot || row.provider);
     },
     metric
   );
@@ -1898,7 +1940,7 @@ export const buildEntityTrendSeries = (
         points: timeline.map((point) => ({
           bucketMs: point.bucketMs,
           label: point.label,
-          value: point[metric] * share,
+          value: usageTimelineMetricValue(point, metric) * share,
         })),
       };
     });
@@ -1908,7 +1950,7 @@ const usageApiKeyTimelineMetricValue = (
   point: UsageApiKeyTimelinePoint,
   metric: UsageTrendMetricKey
 ) => {
-  if (metric === 'estimatedCost') return point.estimatedCost;
+  if (metric === 'estimatedCost') return costInUsd(point);
   if (metric === 'totalTokens') return point.totalTokens;
   return point.requestCount;
 };
@@ -1960,13 +2002,13 @@ const usageCredentialTimelineMetricValue = (
   point: UsageCredentialTimelinePoint,
   metric: UsageTrendMetricKey
 ) => {
-  if (metric === 'estimatedCost') return point.estimatedCost;
+  if (metric === 'estimatedCost') return costInUsd(point);
   if (metric === 'totalTokens') return point.totalTokens;
   return point.requestCount;
 };
 
 const usageTimelineMetricValue = (point: UsageTimelinePoint, metric: UsageTrendMetricKey) => {
-  if (metric === 'estimatedCost') return point.estimatedCost;
+  if (metric === 'estimatedCost') return costInUsd(point);
   if (metric === 'totalTokens') return point.totalTokens;
   return point.requestCount;
 };
@@ -2035,8 +2077,13 @@ export const computeRowCacheHitRate = (row: UsageRankRow): number =>
         cacheHitRate: row.cacheHitRate,
       });
 
-export const computeRowAverageCostPerCall = (row: UsageRankRow): number =>
-  row.requestCount > 0 ? row.estimatedCost / row.requestCount : 0;
+export const computeRowAverageCostPerCall = (row: UsageRankRow) => ({
+  estimatedCost: row.requestCount > 0 ? row.estimatedCost / row.requestCount : 0,
+  estimatedCostCny:
+    row.requestCount > 0 && row.estimatedCostCny !== undefined
+      ? row.estimatedCostCny / row.requestCount
+      : undefined,
+});
 
 export type UsageModelKeyDistributionRow = {
   id: string;
@@ -2097,7 +2144,7 @@ export const buildKeyAnomalies = (rows: UsageRankRow[]): UsageKeyAnomalyRow[] =>
       const severityScore = { high: 3, medium: 2, low: 1 };
       return (
         severityScore[right.severity] - severityScore[left.severity] ||
-        right.row.estimatedCost - left.row.estimatedCost
+        costInUsd(right.row) - costInUsd(left.row)
       );
     });
 
@@ -2233,6 +2280,7 @@ const buildUsageHeatmapContributors = (
       failureCount: toNumber(contributor.failure),
       totalTokens: toNumber(contributor.tokens),
       estimatedCost: toNumber(contributor.cost),
+      estimatedCostCny: toOptionalCny(contributor.cost_cny),
       failureRate: toNumber(contributor.failure_rate),
       share: toNumber(contributor.share),
     };
@@ -2250,6 +2298,7 @@ export const buildUsageHeatmap = (
     failureCount: toNumber(point.failure),
     totalTokens: toNumber(point.tokens),
     estimatedCost: toNumber(point.cost),
+    estimatedCostCny: toOptionalCny(point.cost_cny),
     failureRate: toNumber(point.failure_rate),
     modelContributors: buildUsageHeatmapContributors(point.model_contributors),
     apiKeyContributors: buildUsageHeatmapContributors(point.api_key_contributors, apiKeyDisplayMap),
@@ -2289,6 +2338,7 @@ export const buildUsageHeatmapChartData = (
       point.totalTokens,
       point.estimatedCost,
       point.failureRate,
+      point.estimatedCostCny ?? 0,
     ];
   });
 };
@@ -2396,7 +2446,7 @@ export const summarizeAnomalies = (
     .sort(
       (left, right) =>
         (severityScore[right.severity] ?? 0) - (severityScore[left.severity] ?? 0) ||
-        right.estimatedCost - left.estimatedCost ||
+        costInUsd(right) - costInUsd(left) ||
         right.requestCount - left.requestCount
     )
     .slice(0, limit);
@@ -2545,7 +2595,13 @@ export const buildUsageSummaryDelta = (
     hasComparison: true,
     requestCount: percentChange(summary.requestCount, toNumber(comparison.total_calls)),
     totalTokens: percentChange(summary.totalTokens, toNumber(comparison.total_tokens)),
-    estimatedCost: percentChange(summary.estimatedCost, toNumber(comparison.total_cost)),
+    estimatedCost: percentChange(
+      costInUsd(summary),
+      costInUsd({
+        estimatedCost: toNumber(comparison.total_cost),
+        estimatedCostCny: toOptionalCny(comparison.total_cost_cny),
+      })
+    ),
   };
 };
 
@@ -2588,9 +2644,7 @@ export const analyzeUsageBucket = (
     cacheCreationTokens: previousPoint
       ? percentChange(point.cacheCreationTokens, previousPoint.cacheCreationTokens)
       : 0,
-    estimatedCost: previousPoint
-      ? percentChange(point.estimatedCost, previousPoint.estimatedCost)
-      : 0,
+    estimatedCost: previousPoint ? percentChange(costInUsd(point), costInUsd(previousPoint)) : 0,
     cacheHitRate: previousPoint ? point.cacheHitRate - previousPoint.cacheHitRate : 0,
     averageTokensPerRequest: previousPoint
       ? percentChange(point.averageTokensPerRequest, previousPoint.averageTokensPerRequest)

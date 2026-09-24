@@ -1448,6 +1448,8 @@ export interface MonitoringAnalyticsChannelShareRow {
   cost: number;
   cost_cny?: number;
   average_latency_ms: number | null;
+  // Per-model split of this credential (missing on older backends).
+  models?: MonitoringAnalyticsAccountModelStatRow[];
 }
 
 export interface MonitoringAnalyticsFailureSourceRow {

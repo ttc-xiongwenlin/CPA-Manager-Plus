@@ -1,7 +1,9 @@
 import type { TFunction } from 'i18next';
 import {
   computeCacheHitRate,
+  computeRowAverageCostPerCall,
   computeRowCacheHitRate,
+  costInUsd,
   formatMetricValue,
   formatRowCost,
   getUsageCacheTokens,
@@ -14,6 +16,15 @@ import {
   type UsageSummaryMetrics,
   type UsageTimelinePoint,
 } from './usageAnalyticsModel';
+
+const formatSummaryAverageCost = (summary: UsageSummaryMetrics) =>
+  formatRowCost({
+    estimatedCost: summary.averageCostPerCall,
+    estimatedCostCny:
+      summary.estimatedCostCny !== undefined && summary.requestCount > 0
+        ? summary.estimatedCostCny / summary.requestCount
+        : undefined,
+  });
 
 export type UsageSummaryCardIcon =
   | 'anomaly'
@@ -426,7 +437,7 @@ export const buildUsageEntitySummaryCards = ({
     tone: anomalyCount && anomalyCount > 0 ? 'bad' : undefined,
     value:
       anomalyCount === undefined
-        ? formatMetricValue('estimatedCost', summary.averageCostPerCall)
+        ? formatSummaryAverageCost(summary)
         : formatCompactNumber(anomalyCount),
   },
 ];
@@ -439,7 +450,7 @@ export const buildUsageModelSummaryCards = ({
 }: ModelSummaryCardsInput): UsageSummaryCard[] => {
   const topModel = modelRows[0];
   // With a single costed model, a 100% top share is trivially true — not a concentration signal.
-  const costedModelCount = modelRows.filter((row) => row.estimatedCost > 0).length;
+  const costedModelCount = modelRows.filter((row) => costInUsd(row) > 0).length;
   const lowestSuccessModel = modelRows
     .filter((row) => row.requestCount > 0)
     .reduce<UsageRankRow | null>(
@@ -509,7 +520,7 @@ export const buildUsageApiKeySummaryCards = ({
 }: ApiKeySummaryCardsInput): UsageSummaryCard[] => {
   const topKey = apiKeyRows[0];
   // With a single costed key, a 100% top share is trivially true — not a concentration signal.
-  const costedKeyCount = apiKeyRows.filter((row) => row.estimatedCost > 0).length;
+  const costedKeyCount = apiKeyRows.filter((row) => costInUsd(row) > 0).length;
   const lowestSuccessKey = apiKeyRows
     .filter((row) => row.requestCount > 0)
     .reduce<UsageRankRow | null>(
@@ -553,7 +564,7 @@ export const buildUsageApiKeySummaryCards = ({
       icon: 'cost',
       label: t('usage_analytics.metric_average_cost_per_call'),
       meta: t('usage_analytics.summary_cost_meta'),
-      value: formatMetricValue('estimatedCost', summary.averageCostPerCall),
+      value: formatSummaryAverageCost(summary),
     },
     {
       accent: 'red',
@@ -611,7 +622,6 @@ export const buildCredentialDetailCards = ({
   row,
   t,
 }: CredentialDetailCardsInput): UsageSummaryCard[] => {
-  const averageCost = row.requestCount > 0 ? row.estimatedCost / row.requestCount : 0;
   const averageTokens = row.requestCount > 0 ? row.totalTokens / row.requestCount : 0;
   const failureRate = row.requestCount > 0 ? row.failureCount / row.requestCount : 0;
   const cacheRate = computeRowCacheHitRate(row);
@@ -638,8 +648,8 @@ export const buildCredentialDetailCards = ({
       accent: 'amber',
       icon: 'cost',
       label: t('usage_analytics.average_cost'),
-      meta: `${t('usage_analytics.metric_estimated_cost')} ${formatMetricValue('estimatedCost', row.estimatedCost)}`,
-      value: formatMetricValue('estimatedCost', averageCost),
+      meta: `${t('usage_analytics.metric_estimated_cost')} ${formatRowCost(row)}`,
+      value: formatRowCost(computeRowAverageCostPerCall(row)),
     },
     {
       accent: 'teal',

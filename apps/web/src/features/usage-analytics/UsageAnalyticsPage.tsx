@@ -39,6 +39,7 @@ import {
   buildOptionValues,
   computeRowAverageCostPerCall,
   computeRowCacheHitRate,
+  costInUsd,
   summarizeAnomalies,
   anomalyMetricLabelKey,
   DEFAULT_SELECTED_METRICS,
@@ -362,9 +363,11 @@ const heatmapMetricValueFromDatum = (
   calls = 0,
   tokens = 0,
   cost = 0,
-  failureRate = 0
+  failureRate = 0,
+  costCny = 0
 ) => {
-  if (metric === 'estimatedCost') return cost;
+  if (metric === 'estimatedCost')
+    return costInUsd({ estimatedCost: cost, estimatedCostCny: costCny });
   if (metric === 'totalTokens') return tokens;
   if (metric === 'failureRate') return failureRate;
   return calls;
@@ -861,12 +864,16 @@ function UsageLineChart({
 function CostShareChart({ rows }: { rows: UsageRankRow[] }) {
   const { t } = useTranslation();
   const chartTheme = useUsageChartTheme();
-  const totalCost = rows.reduce((sum, row) => sum + row.estimatedCost, 0);
+  const totalCost = rows.reduce((sum, row) => sum + costInUsd(row), 0);
+  const totalCostLabel = formatRowCost({
+    estimatedCost: rows.reduce((sum, row) => sum + row.estimatedCost, 0),
+    estimatedCostCny: rows.reduce((sum, row) => sum + (row.estimatedCostCny ?? 0), 0),
+  });
   const chartRows = [...rows]
-    .filter((row) => row.estimatedCost > 0)
-    .sort((left, right) => right.estimatedCost - left.estimatedCost)
+    .filter((row) => costInUsd(row) > 0)
+    .sort((left, right) => costInUsd(right) - costInUsd(left))
     .slice(0, 5);
-  const maxCost = Math.max(...chartRows.map((row) => row.estimatedCost), 0);
+  const maxCost = Math.max(...chartRows.map(costInUsd), 0);
 
   if (totalCost <= 0 || chartRows.length === 0) {
     return (
@@ -881,16 +888,14 @@ function CostShareChart({ rows }: { rows: UsageRankRow[] }) {
     <div className={styles.costShareChart}>
       <div className={styles.costShareSummary}>
         <span>{t('usage_analytics.total_cost')}</span>
-        <strong>{formatMetricValue('estimatedCost', totalCost)}</strong>
+        <strong>{totalCostLabel}</strong>
       </div>
       <div className={styles.costShareRankList}>
         {chartRows.map((row, index) => (
           <div
             key={row.id}
             className={styles.costShareRankRow}
-            title={`${row.label} ${formatMetricValue('estimatedCost', row.estimatedCost)} ${formatPercent(
-              row.estimatedCost / totalCost
-            )}`}
+            title={`${row.label} ${formatRowCost(row)} ${formatPercent(costInUsd(row) / totalCost)}`}
           >
             <span className={styles.costShareRankHeader}>
               <span className={styles.costShareRankIdentity}>
@@ -905,8 +910,8 @@ function CostShareChart({ rows }: { rows: UsageRankRow[] }) {
                 <span>{row.label}</span>
               </span>
               <span className={styles.costShareRankMeta}>
-                <strong>{formatMetricValue('estimatedCost', row.estimatedCost)}</strong>
-                <span>{formatPercent(row.estimatedCost / totalCost)}</span>
+                <strong>{formatRowCost(row)}</strong>
+                <span>{formatPercent(costInUsd(row) / totalCost)}</span>
               </span>
             </span>
             <span className={styles.costShareRankTrack} aria-hidden="true">
@@ -916,7 +921,7 @@ function CostShareChart({ rows }: { rows: UsageRankRow[] }) {
                   {
                     '--rank-color':
                       chartTheme.categoryPalette[index % chartTheme.categoryPalette.length],
-                    '--rank-share': maxCost > 0 ? row.estimatedCost / maxCost : 0,
+                    '--rank-share': maxCost > 0 ? costInUsd(row) / maxCost : 0,
                   } as CostShareRankStyle
                 }
               />
@@ -931,21 +936,31 @@ function CostShareChart({ rows }: { rows: UsageRankRow[] }) {
 function CostRankChart({ rows, title }: { rows: UsageRankRow[]; title: string }) {
   const { t } = useTranslation();
   const chartTheme = useUsageChartTheme();
-  const chartRows = useMemo(
-    () =>
-      [...rows]
-        .filter((row) => row.estimatedCost > 0)
-        .sort((left, right) => right.estimatedCost - left.estimatedCost)
-        .slice(0, 5),
-    [rows]
-  );
-  const maxCost = Math.max(...chartRows.map((row) => row.estimatedCost), 0);
+  const chartRows = useMemo(() => {
+    const totalRankCost = rows.reduce((sum, row) => sum + costInUsd(row), 0);
+    return rows
+      .map((row) => {
+        const rankCost = costInUsd(row);
+        return {
+          ...row,
+          costLabel: formatRowCost(row),
+          rankCost,
+          share: totalRankCost > 0 ? rankCost / totalRankCost : 0,
+        };
+      })
+      .filter((row) => row.rankCost > 0)
+      .sort((left, right) => right.rankCost - left.rankCost)
+      .slice(0, 5);
+  }, [rows]);
+  const maxCost = Math.max(...chartRows.map((row) => row.rankCost), 0);
+  // Mixed-currency labels (`¥566.64 · $4,741.68`) need more room than the default 74px.
+  const labelRoom = Math.max(74, ...chartRows.map((row) => Math.ceil(row.costLabel.length * 7.5)));
 
   const option = useMemo<CostRankChartOption>(
     () => ({
       animationDuration: 260,
       backgroundColor: 'transparent',
-      grid: { bottom: 8, containLabel: true, left: 8, right: 74, top: 8 },
+      grid: { bottom: 8, containLabel: true, left: 8, right: labelRoom, top: 8 },
       tooltip: {
         appendToBody: true,
         ...getTooltipOption(chartTheme),
@@ -955,11 +970,10 @@ function CostRankChart({ rows, title }: { rows: UsageRankRow[]; title: string })
         confine: true,
         formatter: (params: unknown) => {
           const item = params as {
-            data?: { share?: number; value?: number };
+            data?: { costLabel?: string; share?: number };
             marker?: string;
             name?: string;
           };
-          const value = Number(item.data?.value ?? 0);
           const share = Number(item.data?.share ?? 0);
           const titleHtml = escapeHtml(
             item.name // user-controlled tooltip label
@@ -969,7 +983,7 @@ function CostRankChart({ rows, title }: { rows: UsageRankRow[]; title: string })
             `${tooltipRowHtml(
               chartTheme,
               `${item.marker ?? ''}${escapeHtml(t('usage_analytics.total_cost'))}`,
-              escapeHtml(formatMetricValue('estimatedCost', value))
+              escapeHtml(item.data?.costLabel ?? '')
             )}${tooltipRowHtml(
               chartTheme,
               escapeHtml(t('usage_analytics.share')),
@@ -1011,8 +1025,9 @@ function CostRankChart({ rows, title }: { rows: UsageRankRow[]; title: string })
             itemStyle: {
               color: chartTheme.categoryPalette[index % chartTheme.categoryPalette.length],
             },
+            costLabel: row.costLabel,
             share: row.share,
-            value: row.estimatedCost,
+            value: row.rankCost,
           })),
           itemStyle: {
             borderRadius: [0, 8, 8, 0],
@@ -1022,7 +1037,7 @@ function CostRankChart({ rows, title }: { rows: UsageRankRow[]; title: string })
             fontSize: 12,
             fontWeight: 800,
             formatter: (params: unknown) =>
-              formatMetricValue('estimatedCost', Number((params as { value?: number }).value ?? 0)),
+              (params as { data?: { costLabel?: string } }).data?.costLabel ?? '',
             position: 'right',
             show: true,
           },
@@ -1035,7 +1050,7 @@ function CostRankChart({ rows, title }: { rows: UsageRankRow[]; title: string })
         },
       ],
     }),
-    [chartRows, chartTheme, maxCost, t]
+    [chartRows, chartTheme, labelRoom, maxCost, t]
   );
 
   if (chartRows.length === 0) {
@@ -1270,9 +1285,26 @@ function UsageHeatmapChart({
       confine: true,
       formatter: (params: unknown) => {
         const item = params as { value?: number[] };
-        const [hour, weekday, visualValue, calls, success, failure, tokens, cost, failureRate] =
-          item.value ?? [];
-        const metricValue = heatmapMetricValueFromDatum(metric, calls, tokens, cost, failureRate);
+        const [
+          hour,
+          weekday,
+          visualValue,
+          calls,
+          success,
+          failure,
+          tokens,
+          cost,
+          failureRate,
+          costCny,
+        ] = item.value ?? [];
+        const metricValue = heatmapMetricValueFromDatum(
+          metric,
+          calls,
+          tokens,
+          cost,
+          failureRate,
+          costCny
+        );
         return tooltipHtml(
           chartTheme,
           `${tooltipRowHtml(
@@ -1294,7 +1326,7 @@ function UsageHeatmapChart({
           )}${tooltipRowHtml(
             chartTheme,
             escapeHtml(t('usage_analytics.metric_estimated_cost')),
-            escapeHtml(formatMetricValue('estimatedCost', cost ?? 0))
+            escapeHtml(formatRowCost({ estimatedCost: cost ?? 0, estimatedCostCny: costCny }))
           )}${tooltipRowHtml(
             chartTheme,
             escapeHtml(t('usage_analytics.metric_failure_count')),
@@ -1475,7 +1507,7 @@ function HeatmapContributorGroup({
                 </span>
                 <em>
                   {t('usage_analytics.heatmap_contributor_meta', {
-                    cost: formatMetricValue('estimatedCost', row.estimatedCost),
+                    cost: formatRowCost(row),
                     share: formatPercent(row.share),
                     tokens: compactNumber(row.totalTokens),
                   })}
@@ -1542,7 +1574,7 @@ function HeatmapDetailPanel({
           accentClass: styles.heatmapDetailMetricAmber,
           icon: <IconDollarSign size={18} />,
           label: t('usage_analytics.metric_estimated_cost'),
-          value: formatMetricValue('estimatedCost', detail.point.estimatedCost),
+          value: formatRowCost(detail.point),
         },
         {
           accentClass: styles.heatmapDetailMetricRed,
@@ -2276,7 +2308,7 @@ function ProviderOverviewPanel({
       [...rows]
         .sort(
           (left, right) =>
-            right.estimatedCost - left.estimatedCost ||
+            costInUsd(right) - costInUsd(left) ||
             right.requestCount - left.requestCount ||
             left.label.localeCompare(right.label)
         )
@@ -2331,12 +2363,7 @@ function ProviderOverviewPanel({
                   </td>
                   <td>{formatPercent(row.cacheRate)}</td>
                   <td title={topModel?.label ?? '-'}>
-                    {topModel
-                      ? `${topModel.label} · ${formatMetricValue(
-                          'estimatedCost',
-                          topModel.estimatedCost
-                        )}`
-                      : '-'}
+                    {topModel ? `${topModel.label} · ${formatRowCost(topModel)}` : '-'}
                   </td>
                   <td>
                     <button type="button" className={styles.linkButton} onClick={() => onOpen(row)}>
@@ -3833,7 +3860,7 @@ function RankTable({
                 ) : null}
                 <td>{formatRowCost(row)}</td>
                 {type !== 'credential' ? (
-                  <td>{formatMetricValue('estimatedCost', computeRowAverageCostPerCall(row))}</td>
+                  <td>{formatRowCost(computeRowAverageCostPerCall(row))}</td>
                 ) : null}
                 {type !== 'credential' ? (
                   <td className={row.failureCount > 0 ? styles.tonebad : ''}>
@@ -3896,7 +3923,7 @@ function DetailPanel({
           </div>
           <div>
             <span>{t('usage_analytics.average_cost')}</span>
-            <strong>{formatMetricValue('estimatedCost', computeRowAverageCostPerCall(row))}</strong>
+            <strong>{formatRowCost(computeRowAverageCostPerCall(row))}</strong>
           </div>
           <div>
             <span>{t('usage_analytics.cache_read_rate')}</span>

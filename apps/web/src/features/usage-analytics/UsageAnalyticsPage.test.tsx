@@ -591,6 +591,38 @@ describe('UsageAnalyticsPage', () => {
     expect(cacheSeries?.data).toEqual([100]);
   });
 
+  it('ranks CNY-only rows in the model overview chart by converted cost', () => {
+    mocks.usageState = createUsageState({
+      modelRows: [
+        createRankRow({ id: 'gpt-4o', label: 'gpt-4o', estimatedCost: 10 }),
+        createRankRow({
+          id: 'baidu-deepseek',
+          label: 'baidu-deepseek',
+          estimatedCost: 0,
+          estimatedCostCny: 144,
+        }),
+        createRankRow({ id: 'mixed', label: 'mixed', estimatedCost: 1, estimatedCostCny: 7.2 }),
+        createRankRow({ id: 'unpriced', label: 'unpriced', estimatedCost: 0 }),
+      ],
+    });
+
+    const renderer = renderPage();
+    const chart = renderer.root
+      .findAllByType(EChartsView)
+      .find((node) => node.props.ariaLabel === 'usage_analytics.model_overview_title');
+    const option = chart?.props.option as {
+      grid: { right: number };
+      yAxis: { data: string[] };
+      series: Array<{ data: Array<{ costLabel: string; share: number; value: number }> }>;
+    };
+
+    expect(option.yAxis.data).toEqual(['baidu-deepseek', 'gpt-4o', 'mixed']);
+    expect(option.series[0].data.map((item) => item.value)).toEqual([20, 10, 2]);
+    expect(option.series[0].data[0].share).toBeCloseTo(20 / 32);
+    expect(option.series[0].data[2].costLabel).toContain(' · ');
+    expect(option.grid.right).toBeGreaterThan(74);
+  });
+
   it('renders fine-grained cache buckets in rank tables', () => {
     const modelRow = createRankRow({
       cachedTokens: 0,

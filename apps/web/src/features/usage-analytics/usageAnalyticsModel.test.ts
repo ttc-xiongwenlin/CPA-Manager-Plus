@@ -14,6 +14,7 @@ import {
   buildDrilldownPreview,
   buildKeyAnomalies,
   buildModelKeyDistribution,
+  buildModelRows,
   buildMonitoringDetailUrl,
   buildProviderRows,
   buildUsageMatrix,
@@ -212,7 +213,7 @@ describe('usage analytics adapters', () => {
           failureRate: 0,
         },
       ])
-    ).toEqual([[1, 2, 128, 128, 126, 2, 1000, 3.25, 2 / 128]]);
+    ).toEqual([[1, 2, 128, 128, 126, 2, 1000, 3.25, 2 / 128, 0]]);
   });
 
   it('normalizes heatmap color values and builds cell detail without changing raw metrics', () => {
@@ -250,10 +251,14 @@ describe('usage analytics adapters', () => {
     ];
 
     expect(buildUsageHeatmapChartData(points, 'totalTokens', 'byWeekday')).toEqual([
-      [9, 1, 0.25, 10, 9, 1, 100, 1, 0.1],
-      [10, 1, 1, 20, 20, 0, 400, 2, 0],
-      [9, 2, 1, 5, 3, 2, 50, 0.5, 0.4],
+      [9, 1, 0.25, 10, 9, 1, 100, 1, 0.1, 0],
+      [10, 1, 1, 20, 20, 0, 400, 2, 0, 0],
+      [9, 2, 1, 5, 3, 2, 50, 0.5, 0.4, 0],
     ]);
+    // CNY spend (¥14.4 = $2 at the fixed rate) adds to the cost color value.
+    expect(
+      buildUsageHeatmapChartData([{ ...points[1], estimatedCostCny: 14.4 }], 'estimatedCost')
+    ).toEqual([[10, 1, 4, 20, 20, 0, 400, 2, 0, 14.4]]);
 
     const detail = buildUsageHeatmapCellDetail(points, { weekday: 1, hour: 9 }, 'requestCount');
     expect(detail).toMatchObject({
@@ -1201,6 +1206,186 @@ describe('usage analytics adapters', () => {
     expect(rows[0].cacheRate).toBeCloseTo(140 / 300, 6);
   });
 
+  it('attributes provider models through credentials when one key spans providers', () => {
+    const usageRow = (overrides: Partial<UsageRankRow>): UsageRankRow => ({
+      id: 'row',
+      label: 'row',
+      requestCount: 0,
+      successCount: 0,
+      failureCount: 0,
+      successRate: 0,
+      totalTokens: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cachedTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      estimatedCost: 0,
+      averageLatencyMs: null,
+      share: 0,
+      ...overrides,
+    });
+    const gemini = usageRow({
+      id: 'gemini-3.8-flash-high',
+      label: 'gemini-3.8-flash-high',
+      model: 'gemini-3.8-flash-high',
+      requestCount: 921,
+      estimatedCost: 26,
+    });
+    const baidu = usageRow({
+      id: 'baidu-deepseek-v4-pro',
+      label: 'baidu-deepseek-v4-pro',
+      model: 'baidu-deepseek-v4-pro',
+      requestCount: 513,
+      estimatedCostCny: 150,
+    });
+    // The key row carries a single provider even though its traffic spans two.
+    const apiKeyRows = [
+      usageRow({ id: 'key', label: 'key', provider: 'antigravity', models: [gemini, baidu] }),
+    ];
+    const credentialRows = [
+      usageRow({
+        id: 'cred-a',
+        label: 'Antigravity A',
+        provider: 'Antigravity',
+        providerSnapshot: 'antigravity',
+        models: [gemini],
+      }),
+      usageRow({
+        id: 'cred-b',
+        label: 'Baidu',
+        provider: 'openai-compatible-baidu',
+        providerSnapshot: 'openai-compatible-baidu',
+        models: [baidu],
+      }),
+    ];
+
+    const rows = buildProviderRows(
+      [
+        {
+          auth_index: 'auth-a',
+          auth_provider_snapshot: 'antigravity',
+          calls: 921,
+          success: 921,
+          failure: 0,
+          tokens: 100,
+          cost: 39,
+          average_latency_ms: null,
+        },
+        {
+          auth_index: 'auth-b',
+          auth_provider_snapshot: 'openai-compatible-baidu',
+          calls: 513,
+          success: 513,
+          failure: 0,
+          tokens: 100,
+          cost: 0,
+          cost_cny: 144,
+          average_latency_ms: null,
+        },
+      ],
+      apiKeyRows,
+      credentialRows
+    );
+
+    const byLabel = new Map(rows.map((row) => [row.label, row]));
+    expect(byLabel.get('antigravity')?.models.map((model) => model.label)).toEqual([
+      'gemini-3.8-flash-high',
+    ]);
+    expect(byLabel.get('openai-compatible-baidu')?.models.map((model) => model.label)).toEqual([
+      'baidu-deepseek-v4-pro',
+    ]);
+    // $39 vs ¥144 (= $20 at the fixed rate).
+    expect(byLabel.get('antigravity')?.costShare).toBeCloseTo(39 / 59, 6);
+    expect(byLabel.get('openai-compatible-baidu')?.costShare).toBeCloseTo(20 / 59, 6);
+  });
+
+  it('attributes provider models from channel share on the overview payload', () => {
+    const model = (name: string, calls: number, cost: number, costCny = 0) => ({
+      model: name,
+      calls,
+      success_calls: calls,
+      failure_calls: 0,
+      success_rate: 1,
+      input_tokens: 0,
+      output_tokens: 0,
+      cached_tokens: 0,
+      cache_read_tokens: 0,
+      cache_creation_tokens: 0,
+      total_tokens: calls,
+      cost,
+      cost_cny: costCny,
+      last_seen_ms: 0,
+    });
+    // Overview requests channel_share and api_key_stats but no credential_stats. The key row
+    // reports one provider (whichever it saw first) while its models span both.
+    const adapted = adaptUsageAnalyticsData(
+      {
+        generated_at_ms: NOW_MS,
+        granularity: 'hour',
+        channel_share: [
+          {
+            auth_index: 'auth-a',
+            auth_provider_snapshot: 'antigravity',
+            calls: 949,
+            success: 949,
+            failure: 0,
+            tokens: 949,
+            cost: 41.72,
+            average_latency_ms: null,
+            models: [model('gemini-3.8-flash-high', 949, 41.72)],
+          },
+          {
+            auth_index: 'auth-b',
+            auth_provider_snapshot: 'openai-compatible-baidu',
+            calls: 555,
+            success: 555,
+            failure: 0,
+            tokens: 555,
+            cost: 0,
+            cost_cny: 152.19,
+            average_latency_ms: null,
+            models: [model('baidu-deepseek-v4-pro', 555, 0, 152.19)],
+          },
+        ],
+        api_key_stats: [
+          {
+            id: 'key',
+            api_key_hash: 'key',
+            auth_provider_snapshot: 'openai-compatible-baidu',
+            calls: 1504,
+            success_calls: 1504,
+            failure_calls: 0,
+            success_rate: 1,
+            input_tokens: 0,
+            output_tokens: 0,
+            cached_tokens: 0,
+            cache_read_tokens: 0,
+            cache_creation_tokens: 0,
+            total_tokens: 1504,
+            cost: 41.72,
+            cost_cny: 152.19,
+            average_latency_ms: null,
+            last_seen_ms: 0,
+            models: [
+              model('gemini-3.8-flash-high', 949, 41.72),
+              model('baidu-deepseek-v4-pro', 555, 0, 152.19),
+            ],
+          },
+        ],
+      } as MonitoringAnalyticsResponse,
+      'hour'
+    );
+
+    const byLabel = new Map(adapted.providerRows.map((row) => [row.label, row]));
+    expect(byLabel.get('antigravity')?.models.map((row) => row.label)).toEqual([
+      'gemini-3.8-flash-high',
+    ]);
+    expect(byLabel.get('openai-compatible-baidu')?.models.map((row) => row.label)).toEqual([
+      'baidu-deepseek-v4-pro',
+    ]);
+  });
+
   it('uses canonical analytics models to estimate drilldown preview cost', () => {
     const rows = buildDrilldownPreview(
       [
@@ -1379,6 +1564,19 @@ describe('model rank derivations', () => {
     ...overrides,
   });
 
+  it('ranks and shares model rows by USD plus converted CNY spend', () => {
+    const rows = buildModelRows([
+      { model: 'gpt', calls: 10, total_tokens: 100, cost: 10 },
+      { model: 'baidu', calls: 5, total_tokens: 100, cost: 0, cost_cny: 144 },
+      { model: 'unpriced', calls: 50, total_tokens: 100, cost: 0 },
+    ] as Parameters<typeof buildModelRows>[0]);
+
+    expect(rows.map((row) => row.id)).toEqual(['baidu', 'gpt', 'unpriced']);
+    expect(rows[0].share).toBeCloseTo(20 / 30, 6);
+    expect(rows[1].share).toBeCloseTo(10 / 30, 6);
+    expect(rows[2].share).toBe(0);
+  });
+
   it('derives per-row cache hit rate and average cost per call', () => {
     const row = rankRow({
       requestCount: 50,
@@ -1388,8 +1586,12 @@ describe('model rank derivations', () => {
       estimatedCost: 10,
     });
     expect(computeRowCacheHitRate(row)).toBeCloseTo(300 / 450, 6);
-    expect(computeRowAverageCostPerCall(row)).toBeCloseTo(0.2, 6);
-    expect(computeRowAverageCostPerCall(rankRow({ estimatedCost: 10 }))).toBe(0);
+    expect(computeRowAverageCostPerCall(row).estimatedCost).toBeCloseTo(0.2, 6);
+    expect(computeRowAverageCostPerCall(row).estimatedCostCny).toBeUndefined();
+    expect(
+      computeRowAverageCostPerCall({ ...row, estimatedCostCny: 25 }).estimatedCostCny
+    ).toBeCloseTo(0.5, 6);
+    expect(computeRowAverageCostPerCall(rankRow({ estimatedCost: 10 })).estimatedCost).toBe(0);
   });
 
   it('uses model-aware cache semantics for GPT-5.6 rank rows', () => {
